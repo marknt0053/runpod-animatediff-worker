@@ -19,7 +19,7 @@ def start_comfyui():
         stderr=subprocess.DEVNULL
     )
 
-def wait_for_comfy(timeout=120):
+def wait_for_comfy(timeout=300):
     """ComfyUIの起動を待つ"""
     start = time.time()
     while time.time() - start < timeout:
