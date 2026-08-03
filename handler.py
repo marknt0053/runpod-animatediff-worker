@@ -13,7 +13,7 @@ COMFY_PATH = "/comfyui"
 def start_comfyui():
     """ComfyUIをバックグラウンドで起動"""
     subprocess.Popen(
-        ["python", "main.py", "--listen", "0.0.0.0", "--port", "8188"],
+        ["python3", "main.py", "--listen", "0.0.0.0", "--port", "8188"],
         cwd=COMFY_PATH,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL
