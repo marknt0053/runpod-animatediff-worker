@@ -31,7 +31,8 @@ RUN mkdir -p /comfyui/models/animatediff_models && \
     wget -q -O /comfyui/models/animatediff_models/mm_sd_v15_v2.ckpt \
     "https://huggingface.co/guoyww/animatediff/resolve/main/mm_sd_v15_v2.ckpt"
 
-COPY workflow.json /workflow.json
+COPY workflow.json /comfyui/workflow.json
 COPY handler.py /handler.py
+COPY start.sh /start.sh
 
-CMD ["python3", "-u", "/handler.py"]
+CMD ["/bin/bash", "/start.sh"]
