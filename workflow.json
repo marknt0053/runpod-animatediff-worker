@@ -8,14 +8,20 @@
   "2": {
     "inputs": {
       "text": "anime style, masterpiece, high quality, detailed",
-      "clip": ["1", 1]
+      "clip": [
+        "1",
+        1
+      ]
     },
     "class_type": "CLIPTextEncode"
   },
   "3": {
     "inputs": {
       "text": "worst quality, low quality, blurry, watermark",
-      "clip": ["1", 1]
+      "clip": [
+        "1",
+        1
+      ]
     },
     "class_type": "CLIPTextEncode"
   },
@@ -34,8 +40,14 @@
   },
   "5": {
     "inputs": {
-      "pixels": ["4", 0],
-      "vae": ["1", 2]
+      "pixels": [
+        "4",
+        0
+      ],
+      "vae": [
+        "1",
+        2
+      ]
     },
     "class_type": "VAEEncode"
   },
@@ -45,29 +57,50 @@
       "beta_schedule": "autoselect",
       "motion_scale": 1,
       "apply_v2_models_properly": true,
-      "model": ["1", 0]
+      "model": [
+        "1",
+        0
+      ]
     },
     "class_type": "ADE_AnimateDiffLoaderWithContext"
   },
   "7": {
     "inputs": {
       "seed": 42,
-      "steps": 20,
+      "steps": 10,
       "cfg": 7,
       "sampler_name": "euler",
       "scheduler": "normal",
       "denoise": 0.6,
-      "model": ["6", 0],
-      "positive": ["2", 0],
-      "negative": ["3", 0],
-      "latent_image": ["5", 0]
+      "model": [
+        "6",
+        0
+      ],
+      "positive": [
+        "2",
+        0
+      ],
+      "negative": [
+        "3",
+        0
+      ],
+      "latent_image": [
+        "5",
+        0
+      ]
     },
     "class_type": "KSampler"
   },
   "8": {
     "inputs": {
-      "samples": ["7", 0],
-      "vae": ["1", 2]
+      "samples": [
+        "7",
+        0
+      ],
+      "vae": [
+        "1",
+        2
+      ]
     },
     "class_type": "VAEDecode"
   },
@@ -83,8 +116,14 @@
       "trim_to_audio": false,
       "pingpong": false,
       "save_output": true,
-      "images": ["8", 0],
-      "audio": ["4", 2]
+      "images": [
+        "8",
+        0
+      ],
+      "audio": [
+        "4",
+        2
+      ]
     },
     "class_type": "VHS_VideoCombine"
   }
