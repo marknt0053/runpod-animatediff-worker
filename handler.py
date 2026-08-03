@@ -4,32 +4,43 @@ import os
 import json
 import time
 import requests
-import tempfile
+import subprocess
+import threading
 
 COMFY_URL = "http://127.0.0.1:8188"
+COMFY_PATH = "/comfyui"
 
-def wait_for_comfy():
-    for _ in range(60):
+def start_comfyui():
+    """ComfyUIをバックグラウンドで起動"""
+    subprocess.Popen(
+        ["python", "main.py", "--listen", "0.0.0.0", "--port", "8188"],
+        cwd=COMFY_PATH,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL
+    )
+
+def wait_for_comfy(timeout=120):
+    """ComfyUIの起動を待つ"""
+    start = time.time()
+    while time.time() - start < timeout:
         try:
             requests.get(f"{COMFY_URL}/system_stats", timeout=2)
+            print("✅ ComfyUI起動完了")
             return True
         except:
-            time.sleep(2)
+            time.sleep(3)
     return False
 
 def upload_video(video_bytes: bytes) -> str:
-    """動画をComfyUIにアップロード"""
     files = {"image": ("input.mp4", video_bytes, "video/mp4")}
     res = requests.post(f"{COMFY_URL}/upload/image", files=files)
     return res.json().get("name", "input.mp4")
 
 def run_workflow(workflow: dict) -> str:
-    """ワークフローを実行してprompt_idを返す"""
     res = requests.post(f"{COMFY_URL}/prompt", json={"prompt": workflow})
     return res.json()["prompt_id"]
 
 def wait_for_result(prompt_id: str, timeout: int = 300) -> bytes:
-    """結果の動画ファイルを取得"""
     start = time.time()
     while time.time() - start < timeout:
         hist = requests.get(f"{COMFY_URL}/history/{prompt_id}").json()
@@ -49,14 +60,15 @@ def wait_for_result(prompt_id: str, timeout: int = 300) -> bytes:
         time.sleep(3)
     return None
 
+# ComfyUI起動
+print("ComfyUI起動中...")
+start_comfyui()
+wait_for_comfy()
+
 def handler(job):
     job_input = job["input"]
     video_b64 = job_input.get("video", "")
     video_bytes = base64.b64decode(video_b64)
-
-    # ComfyUI起動待ち
-    if not wait_for_comfy():
-        return {"error": "ComfyUI起動タイムアウト"}
 
     # 動画アップロード
     upload_video(video_bytes)
