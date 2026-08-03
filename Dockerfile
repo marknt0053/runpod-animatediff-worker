@@ -23,6 +23,7 @@ RUN cd /comfyui/custom_nodes && \
     git clone https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git && \
     cd ComfyUI-VideoHelperSuite && \
     pip3 install -r requirements.txt || true
+RUN pip3 install av imageio imageio-ffmpeg
 
 # ghostmixモデルダウンロード
 RUN mkdir -p /comfyui/models/checkpoints && \
