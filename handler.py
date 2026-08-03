@@ -27,7 +27,11 @@ def run_workflow() -> str:
     with open("/comfyui/workflow.json") as f:
         workflow = json.load(f)
     res = requests.post(f"{COMFY_URL}/prompt", json={"prompt": workflow})
-    return res.json()["prompt_id"]
+    data = res.json()
+    print("workflow response:", data)
+    if "prompt_id" not in data:
+        raise Exception(f"ComfyUI error: {data}")
+    return data["prompt_id"]
 
 def wait_for_result(prompt_id: str, timeout: int = 300) -> bytes:
     start = time.time()
