@@ -7,9 +7,12 @@ RUN apt-get update && apt-get install -y \
 RUN pip3 install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 RUN pip3 install runpod requests
 
-# ComfyUIインストール
-RUN git clone https://github.com/comfyanonymous/ComfyUI.git /comfyui
+# ComfyUIインストール（バージョン固定）
+RUN git clone https://github.com/comfyanonymous/ComfyUI.git /comfyui && \
+    cd /comfyui && \
+    git checkout v0.3.7
 RUN pip3 install -r /comfyui/requirements.txt
+RUN pip3 uninstall -y torchaudio || true
 
 # AnimateDiff Evolvedインストール
 RUN cd /comfyui/custom_nodes && \
