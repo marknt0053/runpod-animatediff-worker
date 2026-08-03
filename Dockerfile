@@ -5,15 +5,13 @@ RUN pip install runpod requests
 
 # AnimateDiff Evolvedインストール
 RUN cd /comfyui/custom_nodes && \
-    git clone https://github.com/Kosinkadink/ComfyUI-AnimateDiff-Evolved.git && \
-    cd ComfyUI-AnimateDiff-Evolved && \
-    pip install -r requirements.txt
+    git clone https://github.com/Kosinkadink/ComfyUI-AnimateDiff-Evolved.git
 
 # VideoHelperSuiteインストール
 RUN cd /comfyui/custom_nodes && \
     git clone https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git && \
     cd ComfyUI-VideoHelperSuite && \
-    pip install -r requirements.txt
+    pip install -r requirements.txt || true
 
 # ghostmixモデルダウンロード
 RUN BACKOFFS="10 20 30 60 90" && for i in 1 2 3 4 5; do \
