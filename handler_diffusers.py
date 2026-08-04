@@ -71,6 +71,7 @@ def handler(job):
         else:
             new_h = 512
             new_w = max(8, int(orig_w * 512 / orig_h / 8) * 8)
+        print(f"アスペクト比確認: orig={orig_w}x{orig_h} → new={new_w}x{new_h}")
         print(f"リサイズ: {orig_w}x{orig_h} → {new_w}x{new_h}")
 
         # フレーム抽出（8fps、アスペクト比保持）
