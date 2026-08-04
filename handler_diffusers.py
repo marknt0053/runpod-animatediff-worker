@@ -4,7 +4,7 @@ import os
 import tempfile
 import torch
 import subprocess
-from diffusers import AnimateDiffImg2ImgPipeline, MotionAdapter, DDIMScheduler
+from diffusers import AnimateDiffVideoToVideoPipeline, MotionAdapter, DDIMScheduler
 from PIL import Image
 
 MODEL_PATH = "/workspace/ghostmix_v20Bakedvae.safetensors"
@@ -18,7 +18,7 @@ def load_model():
             "guoyww/animatediff-motion-adapter-v1-5-2",
             torch_dtype=torch.float16
         )
-        pipe = AnimateDiffImg2ImgPipeline.from_single_file(
+        pipe = AnimateDiffVideoToVideoPipeline.from_single_file(
             MODEL_PATH,
             motion_adapter=adapter,
             torch_dtype=torch.float16
