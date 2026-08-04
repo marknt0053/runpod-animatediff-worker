@@ -51,9 +51,32 @@ def handler(job):
             audio_path, "-y"
         ], capture_output=True).returncode == 0
 
-        # フレーム抽出（8fps、288x512縦長維持）
+        # 元動画の解像度取得
+        import json as _json
+        probe = subprocess.run([
+            "ffprobe", "-v", "quiet", "-print_format", "json", "-show_streams", input_video
+        ], capture_output=True, text=True)
+        probe_data = _json.loads(probe.stdout)
+        orig_w, orig_h = 512, 512
+        for s in probe_data.get("streams", []):
+            if s.get("codec_type") == "video":
+                orig_w = s["width"]
+                orig_h = s["height"]
+                break
+
+        # アスペクト比を保ちながら長辺512に収める（8の倍数に丸める）
+        if orig_w >= orig_h:
+            new_w = 512
+            new_h = max(8, int(orig_h * 512 / orig_w / 8) * 8)
+        else:
+            new_h = 512
+            new_w = max(8, int(orig_w * 512 / orig_h / 8) * 8)
+        print(f"リサイズ: {orig_w}x{orig_h} → {new_w}x{new_h}")
+
+        # フレーム抽出（8fps、アスペクト比保持）
         subprocess.run([
-            "ffmpeg", "-i", input_video, "-vf", "fps=8,scale=288:512",
+            "ffmpeg", "-i", input_video,
+            "-vf", f"fps=8,scale={new_w}:{new_h}",
             os.path.join(frames_dir, "frame_%04d.png"), "-y"
         ], capture_output=True)
 
