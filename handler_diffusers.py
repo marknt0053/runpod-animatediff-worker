@@ -94,6 +94,8 @@ def handler(job):
             prompt="anime style, masterpiece, high quality, detailed",
             negative_prompt="worst quality, low quality, blurry, watermark",
             video=input_frames,
+            height=new_h,
+            width=new_w,
             strength=0.6,
             num_inference_steps=10,
             guidance_scale=7.0,
