@@ -51,9 +51,9 @@ def handler(job):
             audio_path, "-y"
         ], capture_output=True).returncode == 0
 
-        # フレーム抽出（8fps、512x512）
+        # フレーム抽出（8fps、288x512縦長維持）
         subprocess.run([
-            "ffmpeg", "-i", input_video, "-vf", "fps=8,scale=512:512",
+            "ffmpeg", "-i", input_video, "-vf", "fps=8,scale=288:512",
             os.path.join(frames_dir, "frame_%04d.png"), "-y"
         ], capture_output=True)
 
