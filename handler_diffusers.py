@@ -66,11 +66,11 @@ def handler(job):
         # 入力フレームを読み込み
         input_frames = [Image.open(f).convert("RGB") for f in frames]
 
-        # AnimateDiff img2img処理
+        # AnimateDiff video-to-video処理
         output = pipe(
             prompt="anime style, masterpiece, high quality, detailed",
             negative_prompt="worst quality, low quality, blurry, watermark",
-            frames=input_frames,
+            video=input_frames,
             strength=0.6,
             num_inference_steps=10,
             guidance_scale=7.0,
