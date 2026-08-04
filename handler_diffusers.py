@@ -4,7 +4,7 @@ import os
 import tempfile
 import torch
 import subprocess
-from diffusers import AnimateDiffPipeline, MotionAdapter, DDIMScheduler
+from diffusers import AnimateDiffImg2ImgPipeline, MotionAdapter, DDIMScheduler
 from PIL import Image
 
 MODEL_PATH = "/workspace/ghostmix_v20Bakedvae.safetensors"
@@ -18,7 +18,7 @@ def load_model():
             "guoyww/animatediff-motion-adapter-v1-5-2",
             torch_dtype=torch.float16
         )
-        pipe = AnimateDiffPipeline.from_single_file(
+        pipe = AnimateDiffImg2ImgPipeline.from_single_file(
             MODEL_PATH,
             motion_adapter=adapter,
             torch_dtype=torch.float16
@@ -63,11 +63,15 @@ def handler(job):
         ])[:24]
         print(f"フレーム数: {len(frames)}")
 
-        # AnimateDiff処理
+        # 入力フレームを読み込み
+        input_frames = [Image.open(f).convert("RGB") for f in frames]
+
+        # AnimateDiff img2img処理
         output = pipe(
             prompt="anime style, masterpiece, high quality, detailed",
             negative_prompt="worst quality, low quality, blurry, watermark",
-            num_frames=len(frames),
+            frames=input_frames,
+            strength=0.6,
             num_inference_steps=10,
             guidance_scale=7.0,
             generator=torch.Generator("cuda").manual_seed(42),
