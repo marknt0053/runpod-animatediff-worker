@@ -12,11 +12,9 @@ RUN git clone https://github.com/comfyanonymous/ComfyUI.git /comfyui
 RUN pip3 install -r /comfyui/requirements.txt
 RUN pip3 uninstall -y torchaudio || true
 
-# AnimateDiff Evolvedインストール（古いバージョン）
+# AnimateDiff Evolvedインストール
 RUN cd /comfyui/custom_nodes && \
-    git clone https://github.com/Kosinkadink/ComfyUI-AnimateDiff-Evolved.git && \
-    cd ComfyUI-AnimateDiff-Evolved && \
-    git checkout 6e8a6fe59ae4648dc03a5e0c5b5e1e71f5f7da6a
+    git clone https://github.com/Kosinkadink/ComfyUI-AnimateDiff-Evolved.git
 
 # VideoHelperSuiteインストール
 RUN cd /comfyui/custom_nodes && \
