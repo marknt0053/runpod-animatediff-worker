@@ -56,7 +56,13 @@ def handler(job):
         probe = subprocess.run([
             "ffprobe", "-v", "quiet", "-print_format", "json", "-show_streams", input_video
         ], capture_output=True, text=True)
-        probe_data = _json.loads(probe.stdout)
+        print(f"ffprobe stdout: {probe.stdout[:200]}")
+        print(f"ffprobe stderr: {probe.stderr[:200]}")
+        try:
+            probe_data = _json.loads(probe.stdout)
+        except Exception as e:
+            print(f"ffprobe JSON parse error: {e}")
+            probe_data = {}
         orig_w, orig_h = 512, 512
         for s in probe_data.get("streams", []):
             if s.get("codec_type") == "video":
