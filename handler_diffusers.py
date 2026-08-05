@@ -54,7 +54,7 @@ def handler(job):
         # 元動画の解像度取得
         import json as _json
         probe = subprocess.run([
-            "ffprobe", "-v", "quiet", "-print_format", "json", "-show_streams", input_video
+            "ffprobe", "-v", "quiet", "-print_format", "json", "-show_streams", "-show_entries", "stream_tags=rotate", input_video
         ], capture_output=True, text=True)
         print(f"ffprobe stdout: {probe.stdout[:200]}")
         print(f"ffprobe stderr: {probe.stderr[:200]}")
@@ -65,9 +65,16 @@ def handler(job):
             probe_data = {}
         orig_w, orig_h = 512, 512
         for s in probe_data.get("streams", []):
-            if s.get("codec_type") == "video":
+            if s.get("codec_type") == "video" and s.get("width") and s.get("height"):
                 orig_w = s["width"]
                 orig_h = s["height"]
+                # 回転メタデータを確認
+                rotate = int(s.get("tags", {}).get("rotate", 0))
+                print(f"ビデオストリーム検出: codec={s.get('codec_name')} {orig_w}x{orig_h} rotate={rotate}")
+                # 90度または270度回転の場合はwidthとheightを入れ替え
+                if rotate in (90, 270):
+                    orig_w, orig_h = orig_h, orig_w
+                    print(f"回転補正後: {orig_w}x{orig_h}")
                 break
 
         # アスペクト比を保ちながら長辺512に収める（8の倍数に丸める）
@@ -80,10 +87,11 @@ def handler(job):
         print(f"アスペクト比確認: orig={orig_w}x{orig_h} → new={new_w}x{new_h}")
         print(f"リサイズ: {orig_w}x{orig_h} → {new_w}x{new_h}")
 
-        # フレーム抽出（8fps、アスペクト比保持）
+        # フレーム抽出（8fps、アスペクト比保持、回転補正）
+        vf_filter = f"fps=8,scale={new_w}:{new_h}"
         subprocess.run([
             "ffmpeg", "-i", input_video,
-            "-vf", f"fps=8,scale={new_w}:{new_h}",
+            "-vf", vf_filter,
             os.path.join(frames_dir, "frame_%04d.png"), "-y"
         ], capture_output=True)
 
