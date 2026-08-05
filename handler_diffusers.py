@@ -114,6 +114,7 @@ def handler(job):
             strength=0.6,
             num_inference_steps=10,
             guidance_scale=7.0,
+            num_frames=len(input_frames),
             generator=torch.Generator("cuda").manual_seed(42),
         )
 
