@@ -112,7 +112,7 @@ def handler(job):
             height=new_h,
             width=new_w,
             strength=0.75,
-            num_inference_steps=10,
+            num_inference_steps=20,
             guidance_scale=9.0,
             generator=torch.Generator("cuda").manual_seed(42),
         )
