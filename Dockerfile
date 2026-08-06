@@ -17,6 +17,6 @@ RUN mkdir -p /workspace && \
     wget -q -O /workspace/mm_sd_v15_v2.ckpt \
     "https://huggingface.co/guoyww/animatediff/resolve/main/mm_sd_v15_v2.ckpt"
 
-COPY handler.py /handler.py
+COPY handler_diffusers.py /handler.py
 
 CMD ["python3", "-u", "/handler.py"]
