@@ -20,3 +20,4 @@ RUN mkdir -p /workspace && \
 COPY handler.py /handler.py
 
 CMD ["python3", "-u", "/handler.py"]
+# force rebuild 2026年 8月11日 火曜日 00時23分33秒 JST
