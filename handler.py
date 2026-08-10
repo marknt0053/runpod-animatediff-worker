@@ -111,9 +111,9 @@ def handler(job):
             video=input_frames,
             height=new_h,
             width=new_w,
-            strength=0.5,
-            num_inference_steps=25,
-            guidance_scale=7.0,
+            strength=0.6,
+            num_inference_steps=30,
+            guidance_scale=7.5,
             generator=torch.Generator("cuda").manual_seed(42),
         )
 
