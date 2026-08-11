@@ -5,7 +5,7 @@ RUN apt-get update && apt-get install -y \
     rm -rf /var/lib/apt/lists/*
 
 RUN pip3 install torch torchvision --index-url https://download.pytorch.org/whl/cu124
-RUN pip3 install runpod diffusers==0.31.0 transformers==4.44.0 accelerate safetensors Pillow requests
+RUN pip3 install runpod "diffusers==0.39.0" "transformers<5.0.0" accelerate safetensors Pillow requests
 
 # ghostmixモデルダウンロード
 RUN mkdir -p /workspace && \
