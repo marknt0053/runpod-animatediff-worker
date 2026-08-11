@@ -105,7 +105,7 @@ def handler(job):
         # 入力フレームを読み込み
         input_frames = [Image.open(f).convert("RGB") for f in frames]
 
-        # AnimateDiff video-to-video処理
+        # AnimateDiff video-to-video処理 20260811
         output = pipe(
             prompt="anime style, masterpiece, high quality, detailed",
             negative_prompt="worst quality, low quality, blurry, watermark",
@@ -113,10 +113,21 @@ def handler(job):
             height=new_h,
             width=new_w,
             strength=0.6,
-            num_inference_steps=10,
+            num_inference_steps=15,
             guidance_scale=7.0,
             generator=torch.Generator("cuda").manual_seed(42),
         )
+#        output = pipe(
+#            prompt="anime style, masterpiece, high quality, detailed",
+#            negative_prompt="worst quality, low quality, blurry, watermark",
+#            video=input_frames,
+#            height=new_h,
+#            width=new_w,
+#            strength=0.6,
+#            num_inference_steps=10,
+#            guidance_scale=7.0,
+#            generator=torch.Generator("cuda").manual_seed(42),
+#        )
 
         result_frames = output.frames[0]
 
