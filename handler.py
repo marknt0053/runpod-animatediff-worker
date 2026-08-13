@@ -18,8 +18,8 @@ def load_model():
             "guoyww/animatediff-motion-adapter-v1-5-2",
             torch_dtype=torch.float16
         )
-        pipe = AnimateDiffVideoToVideoPipeline.from_single_file(
-            MODEL_PATH,
+        pipe = AnimateDiffVideoToVideoPipeline.from_pretrained(
+            "stable-diffusion-v1-5/stable-diffusion-v1-5",
             motion_adapter=adapter,
             torch_dtype=torch.float16
         ).to("cuda")
