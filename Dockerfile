@@ -4,7 +4,7 @@ RUN apt-get update && apt-get install -y \
     python3 python3-pip ffmpeg wget git && \
     rm -rf /var/lib/apt/lists/*
 
-RUN pip3 install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+RUN pip3 install torch==2.4.0+cu124 torchvision --index-url https://download.pytorch.org/whl/cu124
 RUN pip3 install runpod diffusers transformers accelerate safetensors Pillow requests
 
 # ghostmixモデルダウンロード
