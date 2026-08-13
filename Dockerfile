@@ -11,8 +11,8 @@ RUN pip3 install runpod "diffusers==0.30.3" "transformers==4.44.2" accelerate sa
 
 # ghostmixモデルダウンロード
 RUN mkdir -p /workspace && \
-    wget -q -O /workspace/ghostmix_v20Bakedvae.safetensors \
-    "https://huggingface.co/digiplay/GhostMix/resolve/main/ghostmix_v20Bakedvae.safetensors"
+    pip3 install huggingface_hub && \
+    python3 -c "from huggingface_hub import snapshot_download; snapshot_download('stable-diffusion-v1-5/stable-diffusion-v1-5', cache_dir='/workspace/hub')"
 
 # AnimateDiffモーションモジュールダウンロード
 RUN mkdir -p /workspace && \
