@@ -140,6 +140,16 @@ def handler(job):
                 "-c:v", "libx264", output_video, "-y"
             ], capture_output=True)
 
+        # チラつき除去フィルタ
+        smoothed_video = os.path.join(tmpdir, "smoothed.mp4")
+        subprocess.run([
+            "ffmpeg", "-i", output_video,
+            "-vf", "tblend=all_mode=average",
+            "-c:v", "libx264", smoothed_video, "-y"
+        ], capture_output=True)
+        if os.path.exists(smoothed_video) and os.path.getsize(smoothed_video) > 0:
+            output_video = smoothed_video
+
         with open(output_video, "rb") as f:
             result_b64 = base64.b64encode(f.read()).decode()
 
