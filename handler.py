@@ -15,7 +15,7 @@ def load_model():
     if pipe is None:
         print("モデルロード中...")
         pipe = StableDiffusionImg2ImgPipeline.from_pretrained(
-            "Linaqruf/anything-v4.5",
+            "andite/anything-v4.0",
             torch_dtype=torch.float16,
             safety_checker=None,
         ).to("cuda")
