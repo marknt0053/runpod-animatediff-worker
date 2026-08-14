@@ -1,9 +1,8 @@
 FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
 RUN apt-get update && apt-get install -y python3 python3-pip ffmpeg wget git && rm -rf /var/lib/apt/lists/*
-RUN pip3 install --no-deps "torch==2.5.1+cu124" --index-url https://download.pytorch.org/whl/cu124 && \
-    pip3 install "torchvision==0.20.1+cu124" --index-url https://download.pytorch.org/whl/cu124 && \
-    pip3 install "nvidia-cudnn-cu12==9.1.1.17" "nvidia-cublas-cu12==12.4.5.8" "nvidia-cusolver-cu12==11.6.1.9" "nvidia-cusparse-cu12==12.3.1.170" "nvidia-curand-cu12==10.3.5.147" "nvidia-cuda-nvrtc-cu12==12.4.127" "nvidia-cuda-runtime-cu12==12.4.127" "nvidia-nvjitlink-cu12==12.4.127" "nvidia-nccl-cu12==2.21.5" "nvidia-cuda-cupti-cu12==12.4.127" "nvidia-nvtx-cu12==12.4.127" && \
-    pip3 install networkx filelock sympy==1.13.1 fsspec typing-extensions jinja2 MarkupSafe mpmath triton pillow
+RUN pip3 install --no-deps "torch==2.5.1+cu124" "torchvision==0.20.1+cu124" --index-url https://download.pytorch.org/whl/cu124 && \
+    pip3 install "nvidia-cudnn-cu12==9.1.1.17" "nvidia-cublas-cu12==12.4.5.8" "nvidia-cusolver-cu12==11.6.1.9" "nvidia-cusparse-cu12==12.3.1.170" "nvidia-curand-cu12==10.3.5.147" "nvidia-cuda-nvrtc-cu12==12.4.127" "nvidia-cuda-runtime-cu12==12.4.127" "nvidia-nvjitlink-cu12==12.4.127" "nvidia-nccl-cu12==2.21.5" "nvidia-cuda-cupti-cu12==12.4.127" "nvidia-nvtx-cu12==12.4.127" "nvidia-cufft-cu12==11.2.1.3" && \
+    pip3 install networkx filelock sympy==1.13.1 fsspec typing-extensions jinja2 MarkupSafe mpmath triton pillow numpy
 RUN pip3 install runpod "diffusers==0.31.0" "transformers==4.44.2" accelerate safetensors Pillow requests
 RUN mkdir -p /workspace
 COPY handler.py /handler.py
