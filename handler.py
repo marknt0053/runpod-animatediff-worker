@@ -113,7 +113,7 @@ def handler(job):
                     prompt=prompt,
                     negative_prompt=negative_prompt,
                     image=img,
-                    strength=0.55,
+                    strength=0.30,
                     num_inference_steps=25,
                     guidance_scale=7.5,
                     generator=torch.Generator("cuda").manual_seed(42),
