@@ -107,14 +107,14 @@ def handler(job):
         # AnimateDiff video-to-video処理
         output = pipe(
             prompt="anime style, studio ghibli, cel shading, vivid colors, masterpiece, high quality, detailed illustration",
-            negative_prompt="worst quality, low quality, blurry, watermark, realistic, photography, 3d render, flickering, flicker",
+            negative_prompt="worst quality, low quality, blurry, watermark, realistic, photography, 3d render, flickering, flicker, particles, leaves, floating objects, sparkles, effects, overlays"
             video=input_frames,
             height=new_h,
             width=new_w,
-            strength=0.99,
+            strength=0.70,
             num_inference_steps=30,
             guidance_scale=8.0,
-            generator=torch.Generator("cuda").manual_seed(42),
+            generator=torch.Generator("cuda").manual_seed(123),
         )
 
         result_frames = output.frames[0]
