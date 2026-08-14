@@ -4,28 +4,22 @@ import os
 import tempfile
 import torch
 import subprocess
-from diffusers import AnimateDiffVideoToVideoPipeline, MotionAdapter, DDIMScheduler
+from diffusers import StableDiffusionImg2ImgPipeline
 from PIL import Image
+import json as _json
 
-MODEL_PATH = "/workspace/ghostmix_v20Bakedvae.safetensors"
 pipe = None
 
 def load_model():
     global pipe
     if pipe is None:
         print("モデルロード中...")
-        adapter = MotionAdapter.from_pretrained(
-            "guoyww/animatediff-motion-adapter-v1-5-2",
-            torch_dtype=torch.float16
-        )
-        pipe = AnimateDiffVideoToVideoPipeline.from_pretrained(
-            "stable-diffusion-v1-5/stable-diffusion-v1-5",
-            motion_adapter=adapter,
-            torch_dtype=torch.float16
+        pipe = StableDiffusionImg2ImgPipeline.from_pretrained(
+            "Linaqruf/anything-v4.5",
+            torch_dtype=torch.float16,
+            safety_checker=None,
         ).to("cuda")
-        pipe.scheduler = DDIMScheduler.from_config(
-            pipe.scheduler.config, beta_schedule="linear"
-        )
+        pipe.enable_xformers_memory_efficient_attention()
         print("モデルロード完了")
 
 def handler(job):
@@ -38,9 +32,11 @@ def handler(job):
     with tempfile.TemporaryDirectory() as tmpdir:
         input_video = os.path.join(tmpdir, "input.mp4")
         frames_dir = os.path.join(tmpdir, "frames")
+        out_dir = os.path.join(tmpdir, "out_frames")
         output_video = os.path.join(tmpdir, "output.mp4")
         audio_path = os.path.join(tmpdir, "audio.aac")
         os.makedirs(frames_dir)
+        os.makedirs(out_dir)
 
         with open(input_video, "wb") as f:
             f.write(video_bytes)
@@ -51,44 +47,50 @@ def handler(job):
             audio_path, "-y"
         ], capture_output=True).returncode == 0
 
-        # 元動画の解像度取得
-        import json as _json
+        # 元動画の解像度・FPS取得
         probe = subprocess.run([
-            "ffprobe", "-v", "quiet", "-print_format", "json", "-show_streams", "-show_entries", "stream_tags=rotate", input_video
+            "ffprobe", "-v", "quiet", "-print_format", "json",
+            "-show_streams", "-show_entries", "stream_tags=rotate",
+            input_video
         ], capture_output=True, text=True)
         print(f"ffprobe stdout: {probe.stdout[:200]}")
         print(f"ffprobe stderr: {probe.stderr[:200]}")
+
         try:
             probe_data = _json.loads(probe.stdout)
         except Exception as e:
             print(f"ffprobe JSON parse error: {e}")
             probe_data = {}
-        orig_w, orig_h = 512, 512
+
+        orig_w, orig_h, orig_fps = 512, 512, 24
         for s in probe_data.get("streams", []):
             if s.get("codec_type") == "video" and s.get("width") and s.get("height"):
                 orig_w = s["width"]
                 orig_h = s["height"]
-                # 回転メタデータを確認
                 rotate = int(s.get("tags", {}).get("rotate", 0))
-                print(f"ビデオストリーム検出: codec={s.get('codec_name')} {orig_w}x{orig_h} rotate={rotate}")
-                # 90度または270度回転の場合はwidthとheightを入れ替え
+                r_frame_rate = s.get("r_frame_rate", "24/1")
+                try:
+                    num, den = r_frame_rate.split("/")
+                    orig_fps = int(int(num) / int(den))
+                except:
+                    orig_fps = 24
+                print(f"ビデオストリーム検出: codec={s.get('codec_name')} {orig_w}x{orig_h} rotate={rotate} fps={orig_fps}")
                 if rotate in (90, 270):
                     orig_w, orig_h = orig_h, orig_w
                     print(f"回転補正後: {orig_w}x{orig_h}")
                 break
 
-        # アスペクト比を保ちながら長辺512に収める（8の倍数に丸める）
+        # アスペクト比を保ちながら長辺512に収める（8の倍数）
         if orig_w >= orig_h:
             new_w = 512
             new_h = max(8, int(orig_h * 512 / orig_w / 8) * 8)
         else:
             new_h = 512
             new_w = max(8, int(orig_w * 512 / orig_h / 8) * 8)
-        print(f"アスペクト比確認: orig={orig_w}x{orig_h} → new={new_w}x{new_h}")
         print(f"リサイズ: {orig_w}x{orig_h} → {new_w}x{new_h}")
 
-        # フレーム抽出（8fps、アスペクト比保持、回転補正）
-        vf_filter = f"fps=6,scale={new_w}:{new_h}"
+        # フレーム抽出（元動画のfpsのまま全フレーム）
+        vf_filter = f"scale={new_w}:{new_h}"
         subprocess.run([
             "ffmpeg", "-i", input_video,
             "-vf", vf_filter,
@@ -98,60 +100,50 @@ def handler(job):
         frames = sorted([
             os.path.join(frames_dir, f)
             for f in os.listdir(frames_dir) if f.endswith(".png")
-        ])[:24]
+        ])
         print(f"フレーム数: {len(frames)}")
 
-        # 入力フレームを読み込み
-        input_frames = [Image.open(f).convert("RGB") for f in frames]
+        # 各フレームをSD img2imgで個別変換
+        prompt = "anime style, studio ghibli, cel shading, vivid colors, masterpiece, high quality, detailed illustration, smooth animation"
+        negative_prompt = "worst quality, low quality, blurry, watermark, realistic, photography, 3d render, noise, grain"
 
-        # AnimateDiff video-to-video処理
-        output = pipe(
-            prompt="anime style, studio ghibli, cel shading, vivid colors, masterpiece, high quality, detailed illustration",
-            negative_prompt="worst quality, low quality, blurry, watermark, realistic, photography, 3d render, flickering, flicker, particles, leaves, floating objects, sparkles, effects, overlays",
-            video=input_frames,
-            height=new_h,
-            width=new_w,
-            strength=0.66,
-            num_inference_steps=40,
-            guidance_scale=7.6,
-            generator=torch.Generator("cuda").manual_seed(123),
-        )
+        with torch.no_grad():
+            for i, frame_path in enumerate(frames):
+                img = Image.open(frame_path).convert("RGB")
+                result = pipe(
+                    prompt=prompt,
+                    negative_prompt=negative_prompt,
+                    image=img,
+                    strength=0.55,
+                    num_inference_steps=25,
+                    guidance_scale=7.5,
+                    generator=torch.Generator("cuda").manual_seed(42),
+                ).images[0]
+                result.save(os.path.join(out_dir, f"out_{i:04d}.png"))
+                if (i + 1) % 5 == 0:
+                    print(f"処理済み: {i+1}/{len(frames)} フレーム")
 
-        result_frames = output.frames[0]
+        print("全フレーム変換完了")
 
-        # フレームを保存
-        for i, frame in enumerate(result_frames):
-            frame.save(os.path.join(tmpdir, f"out_{i:04d}.png"))
-
-        # 動画結合
+        # 動画結合（元動画と同じfps）
         if has_audio and os.path.exists(audio_path):
             subprocess.run([
-                "ffmpeg", "-framerate", "6",
-                "-i", os.path.join(tmpdir, "out_%04d.png"),
+                "ffmpeg", "-framerate", str(orig_fps),
+                "-i", os.path.join(out_dir, "out_%04d.png"),
                 "-i", audio_path,
                 "-c:v", "libx264", "-c:a", "aac",
                 "-shortest", output_video, "-y"
             ], capture_output=True)
         else:
             subprocess.run([
-                "ffmpeg", "-framerate", "6",
-                "-i", os.path.join(tmpdir, "out_%04d.png"),
+                "ffmpeg", "-framerate", str(orig_fps),
+                "-i", os.path.join(out_dir, "out_%04d.png"),
                 "-c:v", "libx264", output_video, "-y"
             ], capture_output=True)
-
-        # チラつき除去フィルタ
-        smoothed_video = os.path.join(tmpdir, "smoothed.mp4")
-        subprocess.run([
-            "ffmpeg", "-i", output_video,
-            "-vf", "tblend=all_mode=average",
-            "-c:v", "libx264", smoothed_video, "-y"
-        ], capture_output=True)
-        if os.path.exists(smoothed_video) and os.path.getsize(smoothed_video) > 0:
-            output_video = smoothed_video
 
         with open(output_video, "rb") as f:
             result_b64 = base64.b64encode(f.read()).decode()
 
-        return {"video": result_b64, "frames": len(result_frames)}
+        return {"video": result_b64, "frames": len(frames)}
 
 runpod.serverless.start({"handler": handler})
