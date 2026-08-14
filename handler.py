@@ -88,7 +88,7 @@ def handler(job):
         print(f"リサイズ: {orig_w}x{orig_h} → {new_w}x{new_h}")
 
         # フレーム抽出（8fps、アスペクト比保持、回転補正）
-        vf_filter = f"fps=8,scale={new_w}:{new_h}"
+        vf_filter = f"fps=6,scale={new_w}:{new_h}"
         subprocess.run([
             "ffmpeg", "-i", input_video,
             "-vf", vf_filter,
@@ -126,7 +126,7 @@ def handler(job):
         # 動画結合
         if has_audio and os.path.exists(audio_path):
             subprocess.run([
-                "ffmpeg", "-framerate", "8",
+                "ffmpeg", "-framerate", "6",
                 "-i", os.path.join(tmpdir, "out_%04d.png"),
                 "-i", audio_path,
                 "-c:v", "libx264", "-c:a", "aac",
@@ -134,7 +134,7 @@ def handler(job):
             ], capture_output=True)
         else:
             subprocess.run([
-                "ffmpeg", "-framerate", "8",
+                "ffmpeg", "-framerate", "6",
                 "-i", os.path.join(tmpdir, "out_%04d.png"),
                 "-c:v", "libx264", output_video, "-y"
             ], capture_output=True)
