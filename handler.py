@@ -19,7 +19,6 @@ def load_model():
             torch_dtype=torch.float16,
             safety_checker=None,
         ).to("cuda")
-        pipe.enable_xformers_memory_efficient_attention()
         print("モデルロード完了")
 
 def handler(job):
