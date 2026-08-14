@@ -107,7 +107,7 @@ def handler(job):
         # AnimateDiff video-to-video処理
         output = pipe(
             prompt="anime style, studio ghibli, cel shading, vivid colors, masterpiece, high quality, detailed illustration",
-            negative_prompt="worst quality, low quality, blurry, watermark, realistic, photography, 3d render, flickering, flicker, particles, leaves, floating objects, sparkles, effects, overlays"
+            negative_prompt="worst quality, low quality, blurry, watermark, realistic, photography, 3d render, flickering, flicker, particles, leaves, floating objects, sparkles, effects, overlays",
             video=input_frames,
             height=new_h,
             width=new_w,
