@@ -113,7 +113,7 @@ def handler(job):
             width=new_w,
             strength=0.62,
             num_inference_steps=30,
-            noise_aug_strength=0.02,  # デフォルトは0.0563、小さくするとチラつき減
+            #noise_aug_strength=0.02,  # デフォルトは0.0563、小さくするとチラつき減
             guidance_scale=8.0,
             generator=torch.Generator("cuda").manual_seed(42),
         )
