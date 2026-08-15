@@ -137,11 +137,11 @@ def handler(job):
         # AnimateDiff変換（口の動きは無視してアニメ感最大化）
         output = pipe(
             prompt="anime style, studio ghibli, cel shading, vivid colors, masterpiece, high quality, detailed illustration",
-            negative_prompt="worst quality, low quality, blurry, watermark, realistic, photography, 3d render, flickering, flicker, particles, leaves, floating objects, sparkles, effects, overlays",
+            negative_prompt="worst quality, low quality, blurry, watermark, realistic, photography, 3d render, flickering, flicker, particles, leaves, floating objects, sparkles, effects, overlays, flash",
             video=input_frames,
             height=new_h,
             width=new_w,
-            strength=0.76,
+            strength=0.70,
             num_inference_steps=20,
             guidance_scale=7.5,
             generator=torch.Generator("cuda").manual_seed(42),
