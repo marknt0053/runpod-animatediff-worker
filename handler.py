@@ -20,11 +20,12 @@ def load_model():
             "guoyww/animatediff-motion-adapter-v1-5-2",
             torch_dtype=torch.float16
         )
-        # まずSD1.5パイプラインとしてsafetensorsを読み込む
+        # StableDiffusionPipeline経由でtoonyou_jpをロード
         from diffusers import StableDiffusionPipeline
         sd_pipe = StableDiffusionPipeline.from_single_file(
             "/workspace/models/toonyou_jp.safetensors",
             torch_dtype=torch.float16,
+            safety_checker=None,
         )
         # AnimateDiffVideoToVideoPipelineに変換
         pipe = AnimateDiffVideoToVideoPipeline(
