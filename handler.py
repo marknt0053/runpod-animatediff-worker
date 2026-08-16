@@ -5,7 +5,7 @@ import tempfile
 import torch
 import subprocess
 import numpy as np
-from diffusers import AnimateDiffVideoToVideoPipeline, MotionAdapter, DDIMScheduler
+from diffusers import AnimateDiffVideoToVideoPipeline, MotionAdapter, DPMSolverMultistepScheduler
 from PIL import Image
 import json as _json
 
@@ -20,12 +20,15 @@ def load_model():
             torch_dtype=torch.float16
         )
         pipe = AnimateDiffVideoToVideoPipeline.from_pretrained(
-            "stable-diffusion-v1-5/stable-diffusion-v1-5",
+            "WarriorMama777/OrangeMixs",
             motion_adapter=adapter,
             torch_dtype=torch.float16
         ).to("cuda")
-        pipe.scheduler = DDIMScheduler.from_config(
-            pipe.scheduler.config, beta_schedule="linear"
+        # DPMSolverMultistepScheduler with karras
+        pipe.scheduler = DPMSolverMultistepScheduler.from_config(
+            pipe.scheduler.config,
+            use_karras_sigmas=True,
+            algorithm_type="sde-dpmsolver++",
         )
         print("モデルロード完了")
 
@@ -50,6 +53,57 @@ def apply_wav2lip(anime_video, audio_path, output_path, tmpdir):
         print(f"Wav2Lip例外: {e}")
         return False
 
+def process_frames_with_context(frames, pipe, new_h, new_w, context_length=16, context_overlap=4):
+    """Context Windowを使ってフレームを処理"""
+    total_frames = len(frames)
+    result_frames = [None] * total_frames
+    stride = context_length - context_overlap
+
+    prompt = "anime style, studio ghibli, cel shading, vivid colors, masterpiece, high quality, detailed illustration"
+    negative_prompt = "worst quality, low quality, blurry, watermark, realistic, photography, noise, grain, flickering, particles, sparkles, floating objects"
+
+    # Context Windowごとに処理
+    start = 0
+    while start < total_frames:
+        end = min(start + context_length, total_frames)
+        chunk = frames[start:end]
+        print(f"処理中: フレーム {start}〜{end-1} ({len(chunk)}フレーム)")
+
+        with torch.no_grad():
+            output = pipe(
+                prompt=prompt,
+                negative_prompt=negative_prompt,
+                video=chunk,
+                height=new_h,
+                width=new_w,
+                strength=0.55,
+                num_inference_steps=20,
+                guidance_scale=7.0,
+                generator=torch.Generator("cuda").manual_seed(42),
+            )
+
+        chunk_result = output.frames[0]
+
+        # オーバーラップ部分はブレンド
+        for i, frame in enumerate(chunk_result):
+            global_idx = start + i
+            if global_idx < total_frames:
+                if result_frames[global_idx] is None or i >= context_overlap:
+                    result_frames[global_idx] = frame
+                else:
+                    # オーバーラップ部分をブレンド
+                    alpha = i / context_overlap
+                    prev = np.array(result_frames[global_idx])
+                    curr = np.array(frame)
+                    blended = (prev * (1 - alpha) + curr * alpha).astype(np.uint8)
+                    result_frames[global_idx] = Image.fromarray(blended)
+
+        if end >= total_frames:
+            break
+        start += stride
+
+    return [f for f in result_frames if f is not None]
+
 def handler(job):
     job_input = job["input"]
     video_b64 = job_input.get("video", "")
@@ -69,32 +123,28 @@ def handler(job):
         with open(input_video, "wb") as f:
             f.write(video_bytes)
 
-        # 音声抽出（aac）
+        # 音声抽出
         has_audio = subprocess.run([
             "ffmpeg", "-i", input_video, "-vn", "-acodec", "copy",
             audio_path, "-y"
         ], capture_output=True).returncode == 0
 
-        # Wav2Lip用にwav形式でも抽出
         if has_audio:
             subprocess.run([
                 "ffmpeg", "-i", input_video, "-vn", "-acodec", "pcm_s16le",
                 "-ar", "16000", audio_wav, "-y"
             ], capture_output=True)
 
-        # 元動画の解像度・FPS取得
+        # 元動画の解像度取得
         probe = subprocess.run([
             "ffprobe", "-v", "quiet", "-print_format", "json",
             "-show_streams", "-show_entries", "stream_tags=rotate",
             input_video
         ], capture_output=True, text=True)
-        print(f"ffprobe stdout: {probe.stdout[:200]}")
-        print(f"ffprobe stderr: {probe.stderr[:200]}")
 
         try:
             probe_data = _json.loads(probe.stdout)
-        except Exception as e:
-            print(f"ffprobe JSON parse error: {e}")
+        except:
             probe_data = {}
 
         orig_w, orig_h = 512, 512
@@ -103,10 +153,9 @@ def handler(job):
                 orig_w = s["width"]
                 orig_h = s["height"]
                 rotate = int(s.get("tags", {}).get("rotate", 0))
-                print(f"ビデオストリーム検出: codec={s.get('codec_name')} {orig_w}x{orig_h} rotate={rotate}")
                 if rotate in (90, 270):
                     orig_w, orig_h = orig_h, orig_w
-                    print(f"回転補正後: {orig_w}x{orig_h}")
+                print(f"ビデオストリーム: {orig_w}x{orig_h} rotate={rotate}")
                 break
 
         # アスペクト比を保ちながら長辺512に収める（8の倍数）
@@ -118,7 +167,7 @@ def handler(job):
             new_w = max(8, int(orig_w * 512 / orig_h / 8) * 8)
         print(f"リサイズ: {orig_w}x{orig_h} → {new_w}x{new_h}")
 
-        # 8fpsでフレーム抽出
+        # 8fpsでフレーム抽出（上限なし）
         vf_filter = f"fps=8,scale={new_w}:{new_h}"
         subprocess.run([
             "ffmpeg", "-i", input_video,
@@ -129,32 +178,24 @@ def handler(job):
         frames = sorted([
             os.path.join(frames_dir, f)
             for f in os.listdir(frames_dir) if f.endswith(".png")
-        ])[:24]
-        print(f"フレーム数: {len(frames)}")
+        ])
+        print(f"総フレーム数: {len(frames)}")
 
         input_frames = [Image.open(f).convert("RGB") for f in frames]
 
-        # AnimateDiff変換（口の動きは無視してアニメ感最大化）
-        output = pipe(
-            prompt="anime style, studio ghibli, cel shading, vivid colors, masterpiece, high quality, detailed illustration",
-            negative_prompt="worst quality, low quality, blurry, watermark, realistic, photography, 3d render, flickering, flicker, particles, leaves, floating objects, sparkles, effects, overlays, flash",
-            video=input_frames,
-            height=new_h,
-            width=new_w,
-            strength=0.70,
-            num_inference_steps=30,
-            guidance_scale=8.5,
-            generator=torch.Generator("cuda").manual_seed(42),
+        # Context Windowで処理
+        result_frames = process_frames_with_context(
+            input_frames, pipe, new_h, new_w,
+            context_length=16,
+            context_overlap=4
         )
-
-        result_frames = output.frames[0]
-        result_frames = result_frames[:len(input_frames)]
+        print(f"変換完了: {len(result_frames)}フレーム")
 
         # フレームを保存
         for i, frame in enumerate(result_frames):
             frame.save(os.path.join(tmpdir, f"out_{i:04d}.png"))
 
-        # AnimateDiff動画を作成（音声なし）
+        # 動画作成（音声なし）
         anime_no_audio = os.path.join(tmpdir, "anime_no_audio.mp4")
         subprocess.run([
             "ffmpeg", "-framerate", "8",
@@ -169,7 +210,6 @@ def handler(job):
             wav2lip_success = apply_wav2lip(anime_no_audio, audio_wav, wav2lip_video, tmpdir)
 
         if wav2lip_success and os.path.exists(wav2lip_video) and os.path.getsize(wav2lip_video) > 0:
-            # Wav2Lip成功：音声を付けて最終動画
             subprocess.run([
                 "ffmpeg", "-i", wav2lip_video,
                 "-i", audio_path,
@@ -178,7 +218,6 @@ def handler(job):
             ], capture_output=True)
             print("Wav2Lip合成成功")
         else:
-            # Wav2Lip失敗時はAnimateDiff動画に音声のみ付ける
             if has_audio and os.path.exists(audio_path):
                 subprocess.run([
                     "ffmpeg", "-i", anime_no_audio,
@@ -191,7 +230,7 @@ def handler(job):
                     "ffmpeg", "-i", anime_no_audio,
                     "-c:v", "copy", output_video, "-y"
                 ], capture_output=True)
-            print("Wav2Lipスキップ（AnimateDiff動画を使用）")
+            print("Wav2Lipスキップ")
 
         with open(output_video, "rb") as f:
             result_b64 = base64.b64encode(f.read()).decode()

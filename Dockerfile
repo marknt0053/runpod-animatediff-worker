@@ -5,13 +5,15 @@ RUN pip3 install --no-deps "torch==2.5.1+cu124" "torchvision==0.20.1+cu124" --in
     pip3 install networkx filelock sympy==1.13.1 fsspec typing-extensions jinja2 MarkupSafe mpmath triton pillow numpy
 RUN pip3 install runpod "diffusers==0.31.0" "transformers==4.44.2" accelerate safetensors Pillow requests
 RUN pip3 install opencv-python-headless librosa numba scipy
-# Wav2Lip（requirements.txtを使わず個別インストール）
+# Wav2Lipセットアップ
 RUN git clone https://github.com/Rudrabha/Wav2Lip.git /wav2lip && \
     pip3 install batch-face tqdm
-# Wav2Lipモデルダウンロード
+# モデルダウンロード
 RUN mkdir -p /workspace && \
     wget -q -O /workspace/wav2lip.pth "https://github.com/justinjohn0306/Wav2Lip/releases/download/models/wav2lip.pth"
-# AnimateDiffモーションモジュール
 RUN wget -q -O /workspace/mm_sd_v15_v2.ckpt "https://huggingface.co/guoyww/animatediff/resolve/main/mm_sd_v15_v2.ckpt"
+# toonyou_jpモデルダウンロード
+RUN mkdir -p /workspace/models && \
+    wget -q -O /workspace/models/toonyou_jp.safetensors "https://civitai.com/api/download/models/98960?fileId=68966"
 COPY handler.py /handler.py
 CMD ["python3", "-u", "/handler.py"]
