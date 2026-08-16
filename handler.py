@@ -20,11 +20,20 @@ def load_model():
             "guoyww/animatediff-motion-adapter-v1-5-2",
             torch_dtype=torch.float16
         )
-        # toonyou_jpをsafetensorsから直接ロード
-        pipe = AnimateDiffVideoToVideoPipeline.from_single_file(
+        # まずSD1.5パイプラインとしてsafetensorsを読み込む
+        from diffusers import StableDiffusionPipeline
+        sd_pipe = StableDiffusionPipeline.from_single_file(
             "/workspace/models/toonyou_jp.safetensors",
-            motion_adapter=adapter,
             torch_dtype=torch.float16,
+        )
+        # AnimateDiffVideoToVideoPipelineに変換
+        pipe = AnimateDiffVideoToVideoPipeline(
+            vae=sd_pipe.vae,
+            text_encoder=sd_pipe.text_encoder,
+            tokenizer=sd_pipe.tokenizer,
+            unet=sd_pipe.unet,
+            motion_adapter=adapter,
+            scheduler=sd_pipe.scheduler,
         ).to("cuda")
         # DPMSolverMultistepScheduler with karras
         pipe.scheduler = DPMSolverMultistepScheduler.from_config(
