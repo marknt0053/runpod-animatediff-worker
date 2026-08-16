@@ -5,7 +5,8 @@ import tempfile
 import torch
 import subprocess
 import numpy as np
-from diffusers import AnimateDiffVideoToVideoPipeline, MotionAdapter, DPMSolverMultistepScheduler
+from diffusers import AnimateDiffVideoToVideoPipeline, MotionAdapter, DPMSolverMultistepScheduler, StableDiffusionPipeline
+from diffusers.loaders import FromSingleFileMixin
 from PIL import Image
 import json as _json
 
@@ -19,10 +20,11 @@ def load_model():
             "guoyww/animatediff-motion-adapter-v1-5-2",
             torch_dtype=torch.float16
         )
-        pipe = AnimateDiffVideoToVideoPipeline.from_pretrained(
-            "WarriorMama777/OrangeMixs",
+        # toonyou_jpをsafetensorsから直接ロード
+        pipe = AnimateDiffVideoToVideoPipeline.from_single_file(
+            "/workspace/models/toonyou_jp.safetensors",
             motion_adapter=adapter,
-            torch_dtype=torch.float16
+            torch_dtype=torch.float16,
         ).to("cuda")
         # DPMSolverMultistepScheduler with karras
         pipe.scheduler = DPMSolverMultistepScheduler.from_config(
@@ -33,7 +35,6 @@ def load_model():
         print("モデルロード完了")
 
 def apply_wav2lip(anime_video, audio_path, output_path, tmpdir):
-    """Wav2Lipで口パク合成"""
     try:
         result = subprocess.run([
             "python3", "/wav2lip/inference.py",
@@ -54,7 +55,6 @@ def apply_wav2lip(anime_video, audio_path, output_path, tmpdir):
         return False
 
 def process_frames_with_context(frames, pipe, new_h, new_w, context_length=16, context_overlap=4):
-    """Context Windowを使ってフレームを処理"""
     total_frames = len(frames)
     result_frames = [None] * total_frames
     stride = context_length - context_overlap
@@ -62,7 +62,6 @@ def process_frames_with_context(frames, pipe, new_h, new_w, context_length=16, c
     prompt = "anime style, studio ghibli, cel shading, vivid colors, masterpiece, high quality, detailed illustration"
     negative_prompt = "worst quality, low quality, blurry, watermark, realistic, photography, noise, grain, flickering, particles, sparkles, floating objects"
 
-    # Context Windowごとに処理
     start = 0
     while start < total_frames:
         end = min(start + context_length, total_frames)
@@ -84,14 +83,12 @@ def process_frames_with_context(frames, pipe, new_h, new_w, context_length=16, c
 
         chunk_result = output.frames[0]
 
-        # オーバーラップ部分はブレンド
         for i, frame in enumerate(chunk_result):
             global_idx = start + i
             if global_idx < total_frames:
                 if result_frames[global_idx] is None or i >= context_overlap:
                     result_frames[global_idx] = frame
                 else:
-                    # オーバーラップ部分をブレンド
                     alpha = i / context_overlap
                     prev = np.array(result_frames[global_idx])
                     curr = np.array(frame)
@@ -123,7 +120,6 @@ def handler(job):
         with open(input_video, "wb") as f:
             f.write(video_bytes)
 
-        # 音声抽出
         has_audio = subprocess.run([
             "ffmpeg", "-i", input_video, "-vn", "-acodec", "copy",
             audio_path, "-y"
@@ -135,7 +131,6 @@ def handler(job):
                 "-ar", "16000", audio_wav, "-y"
             ], capture_output=True)
 
-        # 元動画の解像度取得
         probe = subprocess.run([
             "ffprobe", "-v", "quiet", "-print_format", "json",
             "-show_streams", "-show_entries", "stream_tags=rotate",
@@ -158,7 +153,6 @@ def handler(job):
                 print(f"ビデオストリーム: {orig_w}x{orig_h} rotate={rotate}")
                 break
 
-        # アスペクト比を保ちながら長辺512に収める（8の倍数）
         if orig_w >= orig_h:
             new_w = 512
             new_h = max(8, int(orig_h * 512 / orig_w / 8) * 8)
@@ -167,7 +161,6 @@ def handler(job):
             new_w = max(8, int(orig_w * 512 / orig_h / 8) * 8)
         print(f"リサイズ: {orig_w}x{orig_h} → {new_w}x{new_h}")
 
-        # 8fpsでフレーム抽出（上限なし）
         vf_filter = f"fps=8,scale={new_w}:{new_h}"
         subprocess.run([
             "ffmpeg", "-i", input_video,
@@ -183,7 +176,6 @@ def handler(job):
 
         input_frames = [Image.open(f).convert("RGB") for f in frames]
 
-        # Context Windowで処理
         result_frames = process_frames_with_context(
             input_frames, pipe, new_h, new_w,
             context_length=16,
@@ -191,11 +183,9 @@ def handler(job):
         )
         print(f"変換完了: {len(result_frames)}フレーム")
 
-        # フレームを保存
         for i, frame in enumerate(result_frames):
             frame.save(os.path.join(tmpdir, f"out_{i:04d}.png"))
 
-        # 動画作成（音声なし）
         anime_no_audio = os.path.join(tmpdir, "anime_no_audio.mp4")
         subprocess.run([
             "ffmpeg", "-framerate", "8",
@@ -204,7 +194,6 @@ def handler(job):
             anime_no_audio, "-y"
         ], capture_output=True)
 
-        # Wav2Lipで口パク合成
         wav2lip_success = False
         if has_audio and os.path.exists(audio_wav) and os.path.exists("/workspace/wav2lip.pth"):
             wav2lip_success = apply_wav2lip(anime_no_audio, audio_wav, wav2lip_video, tmpdir)
