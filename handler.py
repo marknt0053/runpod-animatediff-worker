@@ -86,7 +86,7 @@ def process_frames_with_context(frames, pipe, new_h, new_w, context_length=16, c
                 height=new_h,
                 width=new_w,
                 strength=0.55,
-                num_inference_steps=20,
+                num_inference_steps=30,
                 guidance_scale=7.0,
                 generator=torch.Generator("cuda").manual_seed(42),
             )
@@ -200,7 +200,7 @@ def handler(job):
         subprocess.run([
             "ffmpeg", "-framerate", "8",
             "-i", os.path.join(tmpdir, "out_%04d.png"),
-            "-c:v", "libx264", "-pix_fmt", "yuv420p",
+            "-c:v", "libx264", "-crf", "15", "-pix_fmt", "yuv420p",
             anime_no_audio, "-y"
         ], capture_output=True)
 
