@@ -82,7 +82,7 @@ def process_frames_with_context(frames, pipe, new_h, new_w, context_length=16, c
                 height=new_h,
                 width=new_w,
                 strength=0.55,
-                num_inference_steps=30,
+                num_inference_steps=20,
                 guidance_scale=7.0,
                 generator=torch.Generator("cuda").manual_seed(42),
             )
@@ -107,7 +107,7 @@ def process_frames_with_context(frames, pipe, new_h, new_w, context_length=16, c
                 height=new_h,
                 width=new_w,
                 strength=0.55,
-                num_inference_steps=30,
+                num_inference_steps=20,
                 guidance_scale=7.0,
                 generator=torch.Generator("cuda").manual_seed(42),
             )
