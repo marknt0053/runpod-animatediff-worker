@@ -66,11 +66,32 @@ def apply_wav2lip(anime_video, audio_path, output_path, tmpdir):
 
 def process_frames_with_context(frames, pipe, new_h, new_w, context_length=16, context_overlap=4):
     total_frames = len(frames)
-    result_frames = [None] * total_frames
-    stride = context_length - context_overlap
-
     prompt = "anime style, studio ghibli, cel shading, vivid colors, masterpiece, high quality, detailed illustration"
     negative_prompt = "worst quality, low quality, blurry, watermark, realistic, photography, noise, grain, flickering, particles, sparkles, floating objects"
+
+    print(f"総フレーム数: {total_frames}")
+
+    # 32フレーム以下なら一括処理（最高品質・ブレンドなし）
+    if total_frames <= 32:
+        print("一括処理モード")
+        with torch.no_grad():
+            output = pipe(
+                prompt=prompt,
+                negative_prompt=negative_prompt,
+                video=frames,
+                height=new_h,
+                width=new_w,
+                strength=0.55,
+                num_inference_steps=30,
+                guidance_scale=7.0,
+                generator=torch.Generator("cuda").manual_seed(42),
+            )
+        return output.frames[0]
+
+    # 32フレーム超はContext Windowで処理（ブレンドなし）
+    print("Context Windowモード")
+    result_frames = [None] * total_frames
+    stride = context_length - context_overlap
 
     start = 0
     while start < total_frames:
@@ -98,18 +119,13 @@ def process_frames_with_context(frames, pipe, new_h, new_w, context_length=16, c
             if global_idx < total_frames:
                 if result_frames[global_idx] is None or i >= context_overlap:
                     result_frames[global_idx] = frame
-                else:
-                    alpha = i / context_overlap
-                    prev = np.array(result_frames[global_idx])
-                    curr = np.array(frame)
-                    blended = (prev * (1 - alpha) + curr * alpha).astype(np.uint8)
-                    result_frames[global_idx] = Image.fromarray(blended)
 
         if end >= total_frames:
             break
         start += stride
 
     return [f for f in result_frames if f is not None]
+
 
 def handler(job):
     job_input = job["input"]
