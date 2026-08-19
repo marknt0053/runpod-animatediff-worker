@@ -40,7 +40,7 @@ def load_model():
         pipe.scheduler = DPMSolverMultistepScheduler.from_config(
             pipe.scheduler.config,
             use_karras_sigmas=True,
-            algorithm_type="sde-dpmsolver++",
+            algorithm_type="dpmsolver++",
         )
         print("モデルロード完了")
 
