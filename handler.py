@@ -5,7 +5,7 @@ import tempfile
 import torch
 import subprocess
 import numpy as np
-from diffusers import AnimateDiffVideoToVideoPipeline, MotionAdapter, DPMSolverMultistepScheduler, StableDiffusionPipeline
+from diffusers import AnimateDiffVideoToVideoPipeline, MotionAdapter, DPMSolverMultistepScheduler, KDPM2AncestralDiscreteScheduler, StableDiffusionPipeline
 from diffusers.loaders import FromSingleFileMixin
 from PIL import Image
 import json as _json
@@ -36,11 +36,10 @@ def load_model():
             motion_adapter=adapter,
             scheduler=sd_pipe.scheduler,
         ).to("cuda")
-        # DPMSolverMultistepScheduler with karras
-        pipe.scheduler = DPMSolverMultistepScheduler.from_config(
+        # KDPM2AncestralDiscreteScheduler with karras（ComfyUI dpmpp_2s_ancestral相当）
+        pipe.scheduler = KDPM2AncestralDiscreteScheduler.from_config(
             pipe.scheduler.config,
             use_karras_sigmas=True,
-            algorithm_type="sde-dpmsolver++",
         )
         # EasyNegativeV2 embeddingを読み込む
         if os.path.exists("/workspace/embeddings/EasyNegativeV2.safetensors"):
