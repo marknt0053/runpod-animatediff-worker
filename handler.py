@@ -75,24 +75,7 @@ def process_frames_with_context(frames, pipe, new_h, new_w, context_length=16, c
 
     print(f"総フレーム数: {total_frames}")
 
-    # 32フレーム以下なら一括処理（最高品質・ブレンドなし）
-    if total_frames <= 32:
-        print("一括処理モード")
-        with torch.no_grad():
-            output = pipe(
-                prompt=prompt,
-                negative_prompt=negative_prompt,
-                video=frames,
-                height=new_h,
-                width=new_w,
-                strength=0.55,
-                num_inference_steps=20,
-                guidance_scale=7.0,
-                generator=torch.Generator("cuda").manual_seed(42),
-            )
-        return output.frames[0]
-
-    # 32フレーム超はContext Windowで処理（ブレンドなし）
+    # 常にContext Windowで処理（安定性のため）
     print("Context Windowモード")
     result_frames = [None] * total_frames
     stride = context_length - context_overlap
@@ -202,7 +185,7 @@ def handler(job):
             os.path.join(frames_dir, f)
             for f in os.listdir(frames_dir) if f.endswith(".png")
         ])
-        print(f"総フレーム数: {len(frames)}")
+        print(f"総フレーム数: {len(frames)} ({len(frames)/8:.1f}秒相当)")
 
         input_frames = [Image.open(f).convert("RGB") for f in frames]
 
