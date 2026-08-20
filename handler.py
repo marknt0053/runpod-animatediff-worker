@@ -76,7 +76,7 @@ def process_frames_with_context(frames, pipe, new_h, new_w, context_length=16, c
     print(f"総フレーム数: {total_frames}")
 
     # 40フレーム以下なら一括処理（最高品質・ブレンドなし）
-    if total_frames <= 40:
+    if total_frames <= 32:
         print(f"一括処理モード ({total_frames}フレーム)")
         with torch.no_grad():
             output = pipe(
