@@ -199,8 +199,8 @@ def handler(job):
 
         vf_filter = f"fps=8,scale={new_w}:{new_h}"
         subprocess.run([
-            "ffmpeg", "-i", input_video,
-            "-vf", vf_filter,
+        subprocess.run([
+            "ffmpeg", "-noautorotate", "-i", input_video,
             os.path.join(frames_dir, "frame_%04d.png"), "-y"
         ], capture_output=True)
 
