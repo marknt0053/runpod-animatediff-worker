@@ -23,7 +23,7 @@ def load_model():
         # StableDiffusionPipeline経由でtoonyou_jpをロード
         from diffusers import StableDiffusionPipeline
         sd_pipe = StableDiffusionPipeline.from_single_file(
-            "/workspace/models/toonyou_jp.safetensors",
+            "/workspace/models/counterfeit_v30.safetensors",
             torch_dtype=torch.float16,
             safety_checker=None,
         )
@@ -40,7 +40,7 @@ def load_model():
         pipe.scheduler = DPMSolverMultistepScheduler.from_config(
             pipe.scheduler.config,
             use_karras_sigmas=True,
-            algorithm_type="dpmsolver++",
+            algorithm_type="sde-dpmsolver++",
         )
         print("モデルロード完了")
 
@@ -67,7 +67,7 @@ def apply_wav2lip(anime_video, audio_path, output_path, tmpdir):
 def process_frames_with_context(frames, pipe, new_h, new_w, context_length=16, context_overlap=4):
     total_frames = len(frames)
     prompt = "anime style, studio ghibli, cel shading, vivid colors, masterpiece, high quality, detailed illustration"
-    negative_prompt = "worst quality, low quality, blurry, watermark, realistic, photography, noise, grain, flickering, particles, sparkles, floating objects"
+    negative_prompt = "EasyNegativeV2, worst quality, low quality, blurry, watermark, realistic, photography, noise, grain, flickering, particles, sparkles, floating objects"
 
     print(f"総フレーム数: {total_frames}")
 
