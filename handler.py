@@ -183,8 +183,9 @@ def handler(job):
                 orig_w = s["width"]
                 orig_h = s["height"]
                 rotate = int(s.get("tags", {}).get("rotate", 0))
-                if rotate in (90, 270):
-                    orig_w, orig_h = orig_h, orig_w
+                # keshin-api側で回転補正済みのためここでは入れ替えない
+                # if rotate in (90, 270):
+                #     orig_w, orig_h = orig_h, orig_w
                 print(f"ビデオストリーム: {orig_w}x{orig_h} rotate={rotate}")
                 break
 
