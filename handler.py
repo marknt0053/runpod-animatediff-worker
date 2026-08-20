@@ -189,18 +189,15 @@ def handler(job):
                 print(f"ビデオストリーム: {orig_w}x{orig_h} rotate={rotate}")
                 break
 
-        if orig_w >= orig_h:
-            new_w = 512
-            new_h = max(8, int(orig_h * 512 / orig_w / 8) * 8)
-        else:
-            new_h = 512
-            new_w = max(8, int(orig_w * 512 / orig_h / 8) * 8)
+        # リサイズなし・元サイズのまま処理（8の倍数に調整のみ）
+        new_w = int(orig_w / 8) * 8
+        new_h = int(orig_h / 8) * 8
         print(f"リサイズ: {orig_w}x{orig_h} → {new_w}x{new_h}")
 
         vf_filter = f"fps=8,scale={new_w}:{new_h}"
         subprocess.run([
-        subprocess.run([
             "ffmpeg", "-noautorotate", "-i", input_video,
+            "-vf", vf_filter,
             os.path.join(frames_dir, "frame_%04d.png"), "-y"
         ], capture_output=True)
 
