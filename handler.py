@@ -42,6 +42,10 @@ def load_model():
             use_karras_sigmas=True,
             algorithm_type="sde-dpmsolver++",
         )
+        # EasyNegativeV2 embeddingを読み込む
+        if os.path.exists("/workspace/embeddings/EasyNegativeV2.safetensors"):
+            pipe.load_textual_inversion("/workspace/embeddings/EasyNegativeV2.safetensors", token="EasyNegativeV2")
+            print("EasyNegativeV2 embedding読み込み完了")
         print("モデルロード完了")
 
 def apply_wav2lip(anime_video, audio_path, output_path, tmpdir):
