@@ -73,6 +73,11 @@ def process_frames_with_context(frames, pipe, new_h, new_w, context_length=16, c
     prompt = "anime style, studio ghibli, cel shading, vivid colors, masterpiece, high quality, detailed illustration"
     negative_prompt = "EasyNegativeV2, worst quality, low quality, blurry, watermark, realistic, photography, noise, grain, flickering, particles, sparkles, floating objects"
 
+    # 32フレームを超える場合は32フレームに切り詰める
+    if total_frames > 32:
+        frames = frames[:32]
+        total_frames = 32
+        print(f"フレーム数を32に切り詰め")
     print(f"総フレーム数: {total_frames}")
 
     # 40フレーム以下なら一括処理（最高品質・ブレンドなし）
