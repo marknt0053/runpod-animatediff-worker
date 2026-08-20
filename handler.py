@@ -75,7 +75,24 @@ def process_frames_with_context(frames, pipe, new_h, new_w, context_length=16, c
 
     print(f"総フレーム数: {total_frames}")
 
-    # 常にContext Windowで処理（安定性のため）
+    # 40フレーム以下なら一括処理（最高品質・ブレンドなし）
+    if total_frames <= 40:
+        print(f"一括処理モード ({total_frames}フレーム)")
+        with torch.no_grad():
+            output = pipe(
+                prompt=prompt,
+                negative_prompt=negative_prompt,
+                video=frames,
+                height=new_h,
+                width=new_w,
+                strength=0.55,
+                num_inference_steps=20,
+                guidance_scale=7.0,
+                generator=torch.Generator("cuda").manual_seed(42),
+            )
+        return output.frames[0]
+
+    # 40フレーム超はContext Windowで処理（ブレンドなし）
     print("Context Windowモード")
     result_frames = [None] * total_frames
     stride = context_length - context_overlap
