@@ -43,12 +43,20 @@ def load_model():
         )
         # PEストレッチを実装（ComfyUI-AnimateDiff-Evolved相当）
         # AnimateDiffのモーションモジュールのPEを16→32にストレッチ
-        # PE属性名のデバッグ
+        # PE属性名のデバッグ - 全モジュールの型を出力
+        module_types = set()
         for name, module in pipe.unet.named_modules():
-            attrs = [a for a in dir(module) if 'pos' in a.lower() or a == 'pe']
-            if attrs and 'TemporalBasic' in type(module).__name__:
-                print(f"Module: {type(module).__name__}, attrs: {attrs}")
-                break
+            t = type(module).__name__
+            if 'Temporal' in t or 'Motion' in t or 'Positional' in t:
+                module_types.add(t)
+        print(f"Temporal/Motion/Positionalモジュール: {module_types}")
+        # pos系の属性を持つモジュールを探す
+        for name, module in pipe.unet.named_modules():
+            for attr in ['pe', 'pos_embed', 'pos_encoding', 'position_embedding']:
+                if hasattr(module, attr):
+                    val = getattr(module, attr)
+                    if hasattr(val, 'shape'):
+                        print(f"Found: {name}.{attr} shape={val.shape}")
 
         # EasyNegativeV2 embeddingを読み込む
         if os.path.exists("/workspace/embeddings/EasyNegativeV2.safetensors"):
