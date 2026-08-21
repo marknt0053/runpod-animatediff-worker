@@ -17,7 +17,7 @@ def load_model():
     if pipe is None:
         print("モデルロード中...")
         adapter = MotionAdapter.from_pretrained(
-            "/workspace/mm_sd_v15_v2.ckpt",
+            "guoyww/animatediff-motion-adapter-v1-5-2",
             torch_dtype=torch.float16
         )
         # StableDiffusionPipeline経由でtoonyou_jpをロード
