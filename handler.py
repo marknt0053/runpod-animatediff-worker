@@ -41,6 +41,23 @@ def load_model():
             pipe.scheduler.config,
             use_karras_sigmas=True,
         )
+        # PEストレッチを実装（ComfyUI-AnimateDiff-Evolved相当）
+        # AnimateDiffのモーションモジュールのPEを16→32にストレッチ
+        def stretch_pe(unet, new_length=32):
+            for name, module in unet.named_modules():
+                if hasattr(module, 'pos_encoder') and hasattr(module.pos_encoder, 'pe'):
+                    old_pe = module.pos_encoder.pe  # shape: [1, max_len, dim]
+                    old_len = old_pe.shape[1]
+                    if old_len < new_length:
+                        import torch.nn.functional as F
+                        # 線形補間でPEをストレッチ
+                        pe_t = old_pe.permute(0, 2, 1)  # [1, dim, max_len]
+                        new_pe = F.interpolate(pe_t, size=new_length, mode='linear', align_corners=True)
+                        module.pos_encoder.pe = new_pe.permute(0, 2, 1)  # [1, new_length, dim]
+                        print(f"PE stretch: {name} {old_len} -> {new_length}")
+        stretch_pe(pipe.unet, new_length=32)
+        print("PEストレッチ完了")
+
         # EasyNegativeV2 embeddingを読み込む
         if os.path.exists("/workspace/embeddings/EasyNegativeV2.safetensors"):
             pipe.load_textual_inversion("/workspace/embeddings/EasyNegativeV2.safetensors", token="EasyNegativeV2")
