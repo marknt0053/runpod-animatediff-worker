@@ -1,82 +1,113 @@
-import runpod
-import base64
 import os
+import gc
+import base64
 import tempfile
 import subprocess
-import json as _json
-import gc
+from pathlib import Path
 
+import runpod
 import torch
 import numpy as np
 
 from PIL import Image
 
 from diffusers import (
+    StableDiffusionPipeline,
     AnimateDiffVideoToVideoPipeline,
     MotionAdapter,
     DPMSolverMultistepScheduler,
-    StableDiffusionPipeline,
 )
+
 
 # ============================================================
 # Configuration
 # ============================================================
 
+MODEL_DIR = "/runpod-volume/models"
+
+CHECKPOINT_PATH = os.path.join(
+    MODEL_DIR,
+    "Counterfeit-V3.0_fix_fp16.safetensors",
+)
+
+MOTION_MODULE_PATH = os.path.join(
+    MODEL_DIR,
+    "mm_sd_v15_v2.ckpt",
+)
+
+EMBEDDING_PATH = os.path.join(
+    MODEL_DIR,
+    "embeddings",
+    "EasyNegativeV2.safetensors",
+)
+
+
+# ============================================================
+# Device
+# ============================================================
+
 DEVICE = "cuda"
 DTYPE = torch.float16
 
-# ------------------------------------------------------------
-# Models
-# ------------------------------------------------------------
 
-CHECKPOINT_PATH = "/workspace/models/counterfeit_v30.safetensors"
+# ============================================================
+# Video settings
+# ============================================================
 
-# ComfyUI:
-#   mm_sd_v15_v2.ckpt
-#
-# Diffusers >= 0.30 supports loading original AnimateDiff
-# checkpoint format directly with MotionAdapter.from_single_file().
-MOTION_MODULE_PATH = "/workspace/models/mm_sd_v15_v2.ckpt"
-
-EASY_NEGATIVE_PATH = "/workspace/embeddings/EasyNegativeV2.safetensors"
-
-# ------------------------------------------------------------
-# ComfyUI workflow equivalent
-# ------------------------------------------------------------
-
-WIDTH = 320
-HEIGHT = 568
+OUTPUT_WIDTH = 320
+OUTPUT_HEIGHT = 568
 
 FPS = 8
 
-NUM_INFERENCE_STEPS = 20
-GUIDANCE_SCALE = 7.0
+STEPS = 20
 
-# ComfyUI KSampler:
-# denoise = 0.55
-STRENGTH = 0.55
+CFG = 7.0
+
+DENOISE = 0.55
 
 SEED = 41868074274227
 
-# AnimateDiff context
+
+# ============================================================
+# AnimateDiff context settings
+# ============================================================
+
 CONTEXT_LENGTH = 16
 CONTEXT_OVERLAP = 4
+CONTEXT_STRIDE = 1
 
-# ------------------------------------------------------------
+
+# ============================================================
 # Prompt
-# ------------------------------------------------------------
+# ============================================================
 
-POSITIVE_PROMPT = (
-    "anime style, studio ghibli, cel shading, vivid colors, "
-    "masterpiece, high quality, detailed illustration"
+PROMPT = (
+    "anime style, "
+    "studio ghibli, "
+    "cel shading, "
+    "vivid colors, "
+    "masterpiece, "
+    "high quality, "
+    "detailed illustration"
 )
+
 
 NEGATIVE_PROMPT = (
-    "EasyNegativeV2, "
-    "worst quality, low quality, blurry, watermark, realistic, "
-    "photography, noise, grain, flickering, particles, "
-    "sparkles, floating objects"
+    "<EasyNegativeV2>, "
+    "worst quality, "
+    "low quality, "
+    "blurry, "
+    "watermark, "
+    "realistic, "
+    "photography, "
+    "noise, "
+    "grain, "
+    "flickering, "
+    "particles, "
+    "sparkles, "
+    "floating objects"
 )
+
 
 # ============================================================
 # Global pipeline
@@ -86,645 +117,990 @@ pipe = None
 
 
 # ============================================================
-# Utility
+# Logging
 # ============================================================
 
-def cleanup_memory():
-    """
-    GPU memory cleanup.
-    """
-    gc.collect()
-
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-        torch.cuda.ipc_collect()
+def log(message):
+    print(
+        f"[AnimeDiff-Worker] {message}",
+        flush=True,
+    )
 
 
 # ============================================================
-# Load model
+# GPU check
+# ============================================================
+
+def check_gpu():
+
+    log("=" * 70)
+    log("GPU CHECK")
+    log("=" * 70)
+
+    log(
+        f"PyTorch: {torch.__version__}"
+    )
+
+    log(
+        f"CUDA compiled version: "
+        f"{torch.version.cuda}"
+    )
+
+    cuda_available = torch.cuda.is_available()
+
+    log(
+        f"CUDA available: "
+        f"{cuda_available}"
+    )
+
+    if not cuda_available:
+
+        log(
+            "ERROR: CUDA is not available."
+        )
+
+        log(
+            "This Worker must be started with "
+            "an NVIDIA GPU."
+        )
+
+        raise RuntimeError(
+            "CUDA is not available. "
+            "RunPod Serverless Worker does not "
+            "have access to a GPU."
+        )
+
+    gpu_count = torch.cuda.device_count()
+
+    log(
+        f"GPU count: {gpu_count}"
+    )
+
+    for index in range(gpu_count):
+
+        name = torch.cuda.get_device_name(index)
+
+        properties = (
+            torch.cuda.get_device_properties(index)
+        )
+
+        memory_gb = (
+            properties.total_memory
+            / 1024**3
+        )
+
+        log(
+            f"GPU {index}: "
+            f"{name} "
+            f"({memory_gb:.2f} GB)"
+        )
+
+    log(
+        f"Selected device: "
+        f"{torch.cuda.get_device_name(0)}"
+    )
+
+    log("=" * 70)
+
+
+# ============================================================
+# Model check
+# ============================================================
+
+def check_models():
+
+    log("=" * 70)
+    log("MODEL CHECK")
+    log("=" * 70)
+
+    log(
+        f"Model directory: "
+        f"{MODEL_DIR}"
+    )
+
+    if not os.path.isdir(MODEL_DIR):
+
+        raise FileNotFoundError(
+            f"Model directory does not exist: "
+            f"{MODEL_DIR}"
+        )
+
+    # --------------------------------------------------------
+    # Counterfeit
+    # --------------------------------------------------------
+
+    if not os.path.isfile(
+        CHECKPOINT_PATH
+    ):
+
+        raise FileNotFoundError(
+            "Counterfeit model not found:\n"
+            f"{CHECKPOINT_PATH}"
+        )
+
+    checkpoint_size = (
+        os.path.getsize(
+            CHECKPOINT_PATH
+        )
+        / 1024**3
+    )
+
+    log(
+        f"Counterfeit model: "
+        f"{checkpoint_size:.2f} GB"
+    )
+
+    # --------------------------------------------------------
+    # Motion module
+    # --------------------------------------------------------
+
+    if not os.path.isfile(
+        MOTION_MODULE_PATH
+    ):
+
+        raise FileNotFoundError(
+            "AnimateDiff motion module not found:\n"
+            f"{MOTION_MODULE_PATH}"
+        )
+
+    motion_size = (
+        os.path.getsize(
+            MOTION_MODULE_PATH
+        )
+        / 1024**3
+    )
+
+    log(
+        f"Motion module: "
+        f"{motion_size:.2f} GB"
+    )
+
+    # --------------------------------------------------------
+    # EasyNegative
+    # --------------------------------------------------------
+
+    if os.path.isfile(
+        EMBEDDING_PATH
+    ):
+
+        embedding_size = (
+            os.path.getsize(
+                EMBEDDING_PATH
+            )
+            / 1024**2
+        )
+
+        log(
+            f"EasyNegativeV2: "
+            f"{embedding_size:.2f} MB"
+        )
+
+    else:
+
+        log(
+            "EasyNegativeV2 not found."
+        )
+
+        log(
+            "Textual inversion will be skipped."
+        )
+
+    log("=" * 70)
+
+
+# ============================================================
+# Model loading
 # ============================================================
 
 def load_model():
+
     global pipe
 
     if pipe is not None:
+
+        log(
+            "Pipeline already loaded."
+        )
+
         return
 
-    print("=" * 60)
-    print("Loading models...")
-    print("=" * 60)
+    log("=" * 70)
+    log("MODEL INITIALIZATION")
+    log("=" * 70)
 
-    if not os.path.exists(CHECKPOINT_PATH):
-        raise FileNotFoundError(
-            f"Checkpoint not found: {CHECKPOINT_PATH}"
+    # --------------------------------------------------------
+    # GPU
+    # --------------------------------------------------------
+
+    check_gpu()
+
+    # --------------------------------------------------------
+    # Files
+    # --------------------------------------------------------
+
+    check_models()
+
+    # --------------------------------------------------------
+    # CUDA device
+    # --------------------------------------------------------
+
+    torch.cuda.set_device(0)
+
+    log(
+        f"Using GPU: "
+        f"{torch.cuda.get_device_name(0)}"
+    )
+
+    # --------------------------------------------------------
+    # MotionAdapter
+    # --------------------------------------------------------
+
+    log(
+        "Loading AnimateDiff MotionAdapter..."
+    )
+
+    log(
+        f"Source: "
+        f"{MOTION_MODULE_PATH}"
+    )
+
+    motion_adapter = (
+        MotionAdapter.from_single_file(
+            MOTION_MODULE_PATH,
+            torch_dtype=DTYPE,
+        )
+    )
+
+    log(
+        "MotionAdapter loaded."
+    )
+
+    # --------------------------------------------------------
+    # Stable Diffusion checkpoint
+    # --------------------------------------------------------
+
+    log(
+        "Loading Counterfeit-V3.0..."
+    )
+
+    log(
+        f"Source: "
+        f"{CHECKPOINT_PATH}"
+    )
+
+    sd_pipe = (
+        StableDiffusionPipeline.from_single_file(
+            CHECKPOINT_PATH,
+
+            torch_dtype=DTYPE,
+
+            safety_checker=None,
+
+            requires_safety_checker=False,
+        )
+    )
+
+    log(
+        "Counterfeit-V3.0 loaded."
+    )
+
+    # --------------------------------------------------------
+    # Scheduler
+    # --------------------------------------------------------
+
+    log(
+        "Configuring scheduler..."
+    )
+
+    scheduler = (
+        DPMSolverMultistepScheduler.from_config(
+            sd_pipe.scheduler.config,
+
+            algorithm_type="dpmsolver++",
+
+            solver_order=2,
+
+            use_karras_sigmas=True,
+        )
+    )
+
+    # --------------------------------------------------------
+    # AnimateDiff Video-to-Video Pipeline
+    # --------------------------------------------------------
+
+    log(
+        "Creating AnimateDiffVideoToVideoPipeline..."
+    )
+
+    pipe = (
+        AnimateDiffVideoToVideoPipeline(
+            vae=sd_pipe.vae,
+
+            text_encoder=sd_pipe.text_encoder,
+
+            tokenizer=sd_pipe.tokenizer,
+
+            unet=sd_pipe.unet,
+
+            motion_adapter=motion_adapter,
+
+            scheduler=scheduler,
+
+            feature_extractor=None,
+
+            image_encoder=None,
+        )
+    )
+
+    # --------------------------------------------------------
+    # GPU
+    # --------------------------------------------------------
+
+    log(
+        "Moving pipeline to GPU..."
+    )
+
+    pipe = pipe.to(
+        DEVICE,
+        dtype=DTYPE,
+    )
+
+    # --------------------------------------------------------
+    # VAE optimization
+    # --------------------------------------------------------
+
+    log(
+        "Enabling VAE slicing..."
+    )
+
+    pipe.enable_vae_slicing()
+
+    # --------------------------------------------------------
+    # EasyNegative
+    # --------------------------------------------------------
+
+    if os.path.isfile(
+        EMBEDDING_PATH
+    ):
+
+        log(
+            "Loading EasyNegativeV2..."
         )
 
-    if not os.path.exists(MOTION_MODULE_PATH):
-        raise FileNotFoundError(
-            f"AnimateDiff motion module not found: {MOTION_MODULE_PATH}"
-        )
+        try:
+
+            pipe.load_textual_inversion(
+                EMBEDDING_PATH,
+                token="EasyNegativeV2",
+            )
+
+            log(
+                "EasyNegativeV2 loaded."
+            )
+
+        except Exception as error:
+
+            log(
+                "WARNING: "
+                "EasyNegativeV2 failed to load."
+            )
+
+            log(
+                str(error)
+            )
 
     # --------------------------------------------------------
-    # 1. Load AnimateDiff v2 motion module
+    # Cleanup SD pipeline
     # --------------------------------------------------------
 
-    print("Loading AnimateDiff v2 motion module:")
-    print(MOTION_MODULE_PATH)
+    del sd_pipe
 
-    adapter = MotionAdapter.from_single_file(
-        MOTION_MODULE_PATH,
-        torch_dtype=DTYPE,
+    gc.collect()
+
+    torch.cuda.empty_cache()
+
+    # --------------------------------------------------------
+    # Memory information
+    # --------------------------------------------------------
+
+    allocated = (
+        torch.cuda.memory_allocated()
+        / 1024**3
     )
 
-    print("AnimateDiff v2 motion module loaded.")
-
-    # --------------------------------------------------------
-    # 2. Load Counterfeit V3.0
-    # --------------------------------------------------------
-
-    print("Loading Counterfeit V3.0...")
-
-    sd_pipe = StableDiffusionPipeline.from_single_file(
-        CHECKPOINT_PATH,
-        torch_dtype=DTYPE,
-        safety_checker=None,
-        requires_safety_checker=False,
+    reserved = (
+        torch.cuda.memory_reserved()
+        / 1024**3
     )
 
-    print("Counterfeit V3.0 loaded.")
-
-    # --------------------------------------------------------
-    # 3. Build AnimateDiff Video-to-Video pipeline
-    # --------------------------------------------------------
-
-    print("Building AnimateDiffVideoToVideoPipeline...")
-
-    pipe = AnimateDiffVideoToVideoPipeline(
-        vae=sd_pipe.vae,
-        text_encoder=sd_pipe.text_encoder,
-        tokenizer=sd_pipe.tokenizer,
-        unet=sd_pipe.unet,
-        motion_adapter=adapter,
-        scheduler=sd_pipe.scheduler,
-        feature_extractor=None,
-        image_encoder=None,
+    log(
+        f"GPU memory allocated: "
+        f"{allocated:.2f} GB"
     )
 
-    # --------------------------------------------------------
-    # 4. Scheduler
-    #
-    # ComfyUI:
-    #
-    # sampler = dpmpp_2s_ancestral
-    # scheduler = karras
-    #
-    # Diffusers does not provide an exact drop-in
-    # dpmpp_2s_ancestral implementation.
-    #
-    # Use DPM-Solver++ 2nd order + Karras as the closest
-    # practical Diffusers scheduler for this workflow.
-    # --------------------------------------------------------
-
-    pipe.scheduler = DPMSolverMultistepScheduler.from_config(
-        pipe.scheduler.config,
-        algorithm_type="dpmsolver++",
-        solver_order=2,
-        solver_type="midpoint",
-        use_karras_sigmas=True,
-        lower_order_final=True,
+    log(
+        f"GPU memory reserved: "
+        f"{reserved:.2f} GB"
     )
 
-    print("Scheduler:")
-    print("  algorithm = DPM-Solver++")
-    print("  order     = 2")
-    print("  Karras    = True")
-
-    # --------------------------------------------------------
-    # 5. Textual inversion
-    # --------------------------------------------------------
-
-    if os.path.exists(EASY_NEGATIVE_PATH):
-
-        print("Loading EasyNegativeV2...")
-
-        pipe.load_textual_inversion(
-            EASY_NEGATIVE_PATH,
-            token="EasyNegativeV2",
-        )
-
-        print("EasyNegativeV2 loaded.")
-
-    else:
-        print(
-            "WARNING: EasyNegativeV2 not found:"
-            f" {EASY_NEGATIVE_PATH}"
-        )
-
-    # --------------------------------------------------------
-    # 6. Move to GPU
-    # --------------------------------------------------------
-
-    pipe = pipe.to(DEVICE)
-
-    # --------------------------------------------------------
-    # 7. Memory optimizations
-    # --------------------------------------------------------
-
-    try:
-        pipe.enable_vae_slicing()
-        print("VAE slicing enabled.")
-    except Exception as e:
-        print(f"VAE slicing unavailable: {e}")
-
-    try:
-        pipe.enable_vae_tiling()
-        print("VAE tiling enabled.")
-    except Exception as e:
-        print(f"VAE tiling unavailable: {e}")
-
-    # xformers is optional.
-    try:
-        pipe.enable_xformers_memory_efficient_attention()
-        print("xFormers attention enabled.")
-    except Exception as e:
-        print(f"xFormers unavailable: {e}")
-
-    # --------------------------------------------------------
-    # IMPORTANT:
-    #
-    # We intentionally DO NOT use:
-    #
-    # pipe.enable_model_cpu_offload()
-    #
-    # because the RunPod GPU is used continuously and
-    # CPU/GPU transfers can make video inference much slower.
-    # --------------------------------------------------------
-
-    print("=" * 60)
-    print("MODEL READY")
-    print("=" * 60)
-
-    print("Checkpoint:")
-    print(CHECKPOINT_PATH)
-
-    print("Motion:")
-    print(MOTION_MODULE_PATH)
-
-    print(f"Resolution: {WIDTH}x{HEIGHT}")
-    print(f"FPS: {FPS}")
-    print(f"Steps: {NUM_INFERENCE_STEPS}")
-    print(f"CFG: {GUIDANCE_SCALE}")
-    print(f"Strength: {STRENGTH}")
-    print(f"Seed: {SEED}")
-    print(
-        f"Context: {CONTEXT_LENGTH}, "
-        f"overlap={CONTEXT_OVERLAP}"
-    )
+    log("=" * 70)
+    log("MODEL INITIALIZATION COMPLETE")
+    log("=" * 70)
 
 
 # ============================================================
-# Video loading
+# Extract video frames
 # ============================================================
 
-def extract_video_frames(
+def extract_frames(
     input_video,
     frames_dir,
 ):
-    """
-    ComfyUI VHS_LoadVideo equivalent:
 
-        force_rate = 8
-        custom_width = 320
-        custom_height = 568
-        select_every_nth = 1
-    """
-
-    os.makedirs(frames_dir, exist_ok=True)
+    os.makedirs(
+        frames_dir,
+        exist_ok=True,
+    )
 
     output_pattern = os.path.join(
         frames_dir,
         "frame_%06d.png",
     )
 
-    print(
-        f"Extracting video: "
-        f"{WIDTH}x{HEIGHT} @ {FPS}fps"
+    vf = (
+        f"fps={FPS},"
+        f"scale={OUTPUT_WIDTH}:{OUTPUT_HEIGHT}:"
+        f"force_original_aspect_ratio=increase,"
+        f"crop={OUTPUT_WIDTH}:{OUTPUT_HEIGHT}"
+    )
+
+    command = [
+        "ffmpeg",
+
+        "-hide_banner",
+        "-loglevel",
+        "error",
+
+        "-noautorotate",
+
+        "-i",
+        input_video,
+
+        "-vf",
+        vf,
+
+        "-vsync",
+        "0",
+
+        output_pattern,
+
+        "-y",
+    ]
+
+    log(
+        "Extracting frames..."
     )
 
     result = subprocess.run(
-        [
-            "ffmpeg",
-            "-hide_banner",
-            "-loglevel",
-            "error",
-
-            # Do not apply automatic rotation.
-            "-noautorotate",
-
-            "-i",
-            input_video,
-
-            # ComfyUI:
-            # force_rate = 8
-            "-vf",
-            f"fps={FPS},scale={WIDTH}:{HEIGHT}:"
-            "flags=lanczos",
-
-            "-vsync",
-            "0",
-
-            output_pattern,
-
-            "-y",
-        ],
+        command,
         capture_output=True,
         text=True,
     )
 
     if result.returncode != 0:
+
         raise RuntimeError(
-            "ffmpeg frame extraction failed:\n"
+            "FFmpeg frame extraction failed:\n"
             + result.stderr
         )
 
-    files = sorted(
+    frames = sorted(
         [
-            os.path.join(frames_dir, f)
-            for f in os.listdir(frames_dir)
-            if f.lower().endswith(".png")
+            os.path.join(
+                frames_dir,
+                name,
+            )
+
+            for name in os.listdir(
+                frames_dir
+            )
+
+            if name.lower().endswith(
+                ".png"
+            )
         ]
     )
 
-    if not files:
+    if not frames:
+
         raise RuntimeError(
             "No video frames were extracted."
         )
 
-    print(
-        f"Extracted {len(files)} frames "
-        f"({len(files) / FPS:.2f} sec)"
+    log(
+        f"Extracted {len(frames)} frames."
     )
-
-    frames = []
-
-    for path in files:
-        image = Image.open(path).convert("RGB")
-        frames.append(image)
 
     return frames
 
 
 # ============================================================
-# AnimateDiff processing
+# Context windows
 # ============================================================
 
-def process_single_context(
-    frames,
-    generator,
+def create_context_windows(
+    num_frames,
 ):
-    """
-    Process one AnimateDiff context.
 
-    ComfyUI:
-        context_length = 16
-    """
+    if num_frames <= CONTEXT_LENGTH:
 
-    print(
-        f"  Processing context: "
-        f"{len(frames)} frames"
+        return [
+            list(range(num_frames))
+        ]
+
+    windows = []
+
+    step = (
+        CONTEXT_LENGTH
+        - CONTEXT_OVERLAP
     )
 
-    with torch.inference_mode():
+    start = 0
 
-        result = pipe(
-            prompt=POSITIVE_PROMPT,
-            negative_prompt=NEGATIVE_PROMPT,
+    while start < num_frames:
 
-            video=frames,
-
-            height=HEIGHT,
-            width=WIDTH,
-
-            strength=STRENGTH,
-
-            num_inference_steps=NUM_INFERENCE_STEPS,
-
-            guidance_scale=GUIDANCE_SCALE,
-
-            generator=generator,
-
-            # Do not force a resize inside the pipeline.
-            resize_mode="default",
-
-            # Diffusers' video-to-video implementation
-            # can otherwise alter the effective number of
-            # inference steps depending on strength.
-            #
-            # We keep the normal behavior here because this
-            # corresponds most closely to img2img/video2video.
+        end = min(
+            start + CONTEXT_LENGTH,
+            num_frames,
         )
 
-    return result.frames[0]
+        indices = list(
+            range(
+                start,
+                end,
+            )
+        )
+
+        windows.append(
+            indices
+        )
+
+        if end >= num_frames:
+
+            break
+
+        start += step
+
+    return windows
 
 
 # ============================================================
-# Context processing
+# Pyramid weights
 # ============================================================
 
-def process_frames_with_context(
+def create_pyramid_weights(
+    length,
+):
+
+    if length <= 0:
+
+        return np.array(
+            [],
+            dtype=np.float32,
+        )
+
+    center = (
+        length + 1
+    ) // 2
+
+    weights = []
+
+    for i in range(length):
+
+        distance = abs(
+            i - (length - 1) / 2
+        )
+
+        weight = (
+            center - distance
+        )
+
+        weights.append(
+            max(
+                weight,
+                1.0,
+            )
+        )
+
+    return np.asarray(
+        weights,
+        dtype=np.float32,
+    )
+
+
+# ============================================================
+# AnimateDiff
+# ============================================================
+
+def process_video_frames(
     frames,
 ):
-    """
-    Approximate ComfyUI AnimateDiff context behavior.
-
-    ComfyUI:
-        context_length = 16
-        context_overlap = 4
-        closed_loop = false
-        fuse_method = pyramid
-        use_on_equal_length = false
-        start_percent = 0
-        guarantee_steps = 1
-
-    Diffusers does not expose ADE_LoopedUniformContextOptions
-    directly, so this function implements overlapping
-    temporal windows externally.
-
-    For <=16 frames:
-        process as one context.
-
-    For >16 frames:
-        process overlapping 16-frame windows.
-
-    Results are fused using pyramid-like weighted blending.
-    """
 
     total_frames = len(frames)
 
-    print("=" * 60)
-    print("AnimateDiff processing")
-    print("=" * 60)
+    log("=" * 70)
+    log("ANIMATEDIFF PROCESSING")
+    log("=" * 70)
 
-    print(f"Total frames : {total_frames}")
-    print(f"Context      : {CONTEXT_LENGTH}")
-    print(f"Overlap      : {CONTEXT_OVERLAP}")
-
-    # --------------------------------------------------------
-    # Case 1:
-    # <=16 frames
-    # --------------------------------------------------------
-
-    if total_frames <= CONTEXT_LENGTH:
-
-        print(
-            "Video fits into one AnimateDiff context."
-        )
-
-        generator = torch.Generator(
-            device=DEVICE
-        ).manual_seed(SEED)
-
-        return process_single_context(
-            frames,
-            generator,
-        )
-
-    # --------------------------------------------------------
-    # Case 2:
-    # Long video
-    # --------------------------------------------------------
-
-    stride = (
-        CONTEXT_LENGTH -
-        CONTEXT_OVERLAP
+    log(
+        f"Frames: {total_frames}"
     )
 
-    print(
-        f"Context stride = {stride}"
+    log(
+        f"Resolution: "
+        f"{OUTPUT_WIDTH}x{OUTPUT_HEIGHT}"
+    )
+
+    log(
+        f"FPS: {FPS}"
+    )
+
+    log(
+        f"Steps: {STEPS}"
+    )
+
+    log(
+        f"CFG: {CFG}"
+    )
+
+    log(
+        f"Denoising strength: "
+        f"{DENOISE}"
+    )
+
+    log(
+        f"Seed: {SEED}"
+    )
+
+    log(
+        f"Context length: "
+        f"{CONTEXT_LENGTH}"
+    )
+
+    log(
+        f"Context overlap: "
+        f"{CONTEXT_OVERLAP}"
+    )
+
+    windows = create_context_windows(
+        total_frames
+    )
+
+    log(
+        f"Context windows: "
+        f"{len(windows)}"
     )
 
     # --------------------------------------------------------
-    # Output accumulation
-    #
-    # Each frame can be produced by multiple contexts.
-    # We accumulate weighted pixels and normalize later.
-    #
-    # This approximates:
-    #
-    #     fuse_method = pyramid
-    #
+    # Accumulators
     # --------------------------------------------------------
 
-    output_accumulator = [
-        None
-        for _ in range(total_frames)
-    ]
+    result_accum = np.zeros(
+        (
+            total_frames,
+            OUTPUT_HEIGHT,
+            OUTPUT_WIDTH,
+            3,
+        ),
+        dtype=np.float32,
+    )
 
-    weight_accumulator = np.zeros(
+    weight_accum = np.zeros(
         total_frames,
         dtype=np.float32,
     )
 
     # --------------------------------------------------------
-    # Generate context windows
+    # Process windows
     # --------------------------------------------------------
 
-    context_starts = []
-
-    start = 0
-
-    while start < total_frames:
-
-        end = min(
-            start + CONTEXT_LENGTH,
-            total_frames,
-        )
-
-        context_starts.append(
-            (start, end)
-        )
-
-        if end >= total_frames:
-            break
-
-        start += stride
-
-    # --------------------------------------------------------
-    # Process each context
-    # --------------------------------------------------------
-
-    for context_index, (start, end) in enumerate(
-        context_starts
+    for window_number, indices in enumerate(
+        windows,
+        start=1,
     ):
 
-        print(
-            f"[Context {context_index + 1}/"
-            f"{len(context_starts)}] "
-            f"frames {start} - {end - 1}"
+        log("=" * 70)
+
+        log(
+            f"Context "
+            f"{window_number}/{len(windows)}"
         )
 
-        chunk = frames[start:end]
-
-        # ----------------------------------------------------
-        # IMPORTANT:
-        #
-        # Use the SAME seed for each context.
-        #
-        # This is closer to a deterministic ComfyUI workflow
-        # than using a continuously changing seed.
-        # ----------------------------------------------------
-
-        generator = torch.Generator(
-            device=DEVICE
-        ).manual_seed(SEED)
-
-        chunk_result = process_single_context(
-            chunk,
-            generator,
+        log(
+            f"Frames "
+            f"{indices[0]} - "
+            f"{indices[-1]}"
         )
 
-        chunk_length = len(chunk_result)
-
         # ----------------------------------------------------
-        # Pyramid-like blending weights
-        #
-        # Stronger weight in the middle of the context.
-        # Lower weight at the edges.
+        # Same seed for each context
         # ----------------------------------------------------
 
-        weights = np.ones(
-            chunk_length,
-            dtype=np.float32,
+        generator = (
+            torch.Generator(
+                device=DEVICE
+            ).manual_seed(SEED)
         )
 
-        if chunk_length > 1:
+        chunk = [
+            frames[index]
+            for index in indices
+        ]
 
-            center = (
-                chunk_length - 1
-            ) / 2.0
+        try:
 
-            max_distance = max(
-                center,
-                1.0,
+            with torch.inference_mode():
+
+                output = pipe(
+                    prompt=PROMPT,
+
+                    negative_prompt=NEGATIVE_PROMPT,
+
+                    video=chunk,
+
+                    height=OUTPUT_HEIGHT,
+
+                    width=OUTPUT_WIDTH,
+
+                    strength=DENOISE,
+
+                    num_inference_steps=STEPS,
+
+                    guidance_scale=CFG,
+
+                    generator=generator,
+
+                    output_type="pil",
+                )
+
+            output_frames = (
+                output.frames[0]
             )
 
-            for i in range(chunk_length):
+        except torch.cuda.OutOfMemoryError:
 
-                distance = abs(
-                    i - center
-                )
+            log(
+                "CUDA OUT OF MEMORY."
+            )
 
-                normalized = (
-                    distance /
-                    max_distance
-                )
+            torch.cuda.empty_cache()
 
-                # Pyramid:
-                #
-                # center = 1.0
-                # edge   = 0.25
-                #
-                weights[i] = (
-                    1.0 -
-                    0.75 * normalized
-                )
+            gc.collect()
+
+            raise RuntimeError(
+                "GPU out of memory while "
+                "processing an AnimateDiff "
+                "context window."
+            )
+
+        if len(output_frames) != len(indices):
+
+            raise RuntimeError(
+                "Output frame count mismatch: "
+                f"{len(output_frames)} != "
+                f"{len(indices)}"
+            )
+
+        weights = (
+            create_pyramid_weights(
+                len(indices)
+            )
+        )
 
         # ----------------------------------------------------
-        # Accumulate
+        # Fusion
         # ----------------------------------------------------
 
-        for local_index in range(
-            chunk_length
+        for local_index, frame in enumerate(
+            output_frames
         ):
 
             global_index = (
-                start + local_index
+                indices[local_index]
             )
-
-            if global_index >= total_frames:
-                continue
-
-            frame = chunk_result[
-                local_index
-            ]
 
             frame_np = np.asarray(
                 frame,
                 dtype=np.float32,
             )
 
-            weight = weights[
-                local_index
-            ]
+            weight = (
+                weights[local_index]
+            )
 
-            if output_accumulator[
+            result_accum[
                 global_index
-            ] is None:
+            ] += (
+                frame_np * weight
+            )
 
-                output_accumulator[
-                    global_index
-                ] = (
-                    frame_np * weight
-                )
-
-            else:
-
-                output_accumulator[
-                    global_index
-                ] += (
-                    frame_np * weight
-                )
-
-            weight_accumulator[
+            weight_accum[
                 global_index
             ] += weight
 
-        cleanup_memory()
+        del output
+        del output_frames
+        del chunk
+        del generator
+
+        gc.collect()
+
+        torch.cuda.empty_cache()
+
+        allocated = (
+            torch.cuda.memory_allocated()
+            / 1024**3
+        )
+
+        log(
+            f"GPU allocated after window: "
+            f"{allocated:.2f} GB"
+        )
 
     # --------------------------------------------------------
     # Normalize
     # --------------------------------------------------------
 
-    result_frames = []
+    log(
+        "Fusing context windows..."
+    )
 
-    for i in range(total_frames):
+    denominator = np.maximum(
+        weight_accum,
+        1e-8,
+    )
 
-        if (
-            output_accumulator[i]
-            is None
-        ):
-            raise RuntimeError(
-                f"Frame {i} was not generated."
-            )
+    result_accum /= (
+        denominator[
+            :, None, None, None
+        ]
+    )
 
-        image_np = (
-            output_accumulator[i] /
-            max(
-                weight_accumulator[i],
-                1e-8,
-            )
+    result_accum = np.clip(
+        result_accum,
+        0,
+        255,
+    ).astype(
+        np.uint8
+    )
+
+    result_frames = [
+        Image.fromarray(
+            frame,
+            "RGB",
         )
 
-        image_np = np.clip(
-            image_np,
-            0,
-            255,
-        ).astype(
-            np.uint8
-        )
+        for frame in result_accum
+    ]
 
-        result_frames.append(
-            Image.fromarray(
-                image_np,
-                mode="RGB",
-            )
-        )
+    log(
+        f"Generated frames: "
+        f"{len(result_frames)}"
+    )
 
     return result_frames
 
 
 # ============================================================
-# Audio extraction
+# Save video
+# ============================================================
+
+def save_video(
+    frames,
+    output_path,
+):
+
+    output_dir = os.path.dirname(
+        output_path
+    )
+
+    os.makedirs(
+        output_dir,
+        exist_ok=True,
+    )
+
+    frame_pattern = os.path.join(
+        output_dir,
+        "anime_%06d.png",
+    )
+
+    log(
+        "Saving generated frames..."
+    )
+
+    for index, frame in enumerate(
+        frames
+    ):
+
+        frame.save(
+            os.path.join(
+                output_dir,
+                f"anime_{index:06d}.png",
+            )
+        )
+
+    command = [
+        "ffmpeg",
+
+        "-hide_banner",
+        "-loglevel",
+        "error",
+
+        "-framerate",
+        str(FPS),
+
+        "-i",
+        frame_pattern,
+
+        "-c:v",
+        "libx264",
+
+        "-crf",
+        "19",
+
+        "-pix_fmt",
+        "yuv420p",
+
+        "-movflags",
+        "+faststart",
+
+        output_path,
+
+        "-y",
+    ]
+
+    result = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+    )
+
+    if result.returncode != 0:
+
+        raise RuntimeError(
+            "Video encoding failed:\n"
+            + result.stderr
+        )
+
+    log(
+        "Generated video encoded."
+    )
+
+    return output_path
+
+
+# ============================================================
+# Extract audio
 # ============================================================
 
 def extract_audio(
@@ -732,13 +1108,15 @@ def extract_audio(
     audio_path,
     audio_wav,
 ):
-    """
-    Extract original audio.
-    """
+
+    # --------------------------------------------------------
+    # Original audio
+    # --------------------------------------------------------
 
     result = subprocess.run(
         [
             "ffmpeg",
+
             "-hide_banner",
             "-loglevel",
             "error",
@@ -759,15 +1137,26 @@ def extract_audio(
         text=True,
     )
 
-    if result.returncode != 0:
-        print(
-            "No original audio found."
-        )
-        return False
+    has_audio = (
+        result.returncode == 0
+        and os.path.isfile(audio_path)
+        and os.path.getsize(
+            audio_path
+        ) > 0
+    )
+
+    if not has_audio:
+
+        return False, False
+
+    # --------------------------------------------------------
+    # WAV for Wav2Lip
+    # --------------------------------------------------------
 
     result = subprocess.run(
         [
             "ffmpeg",
+
             "-hide_banner",
             "-loglevel",
             "error",
@@ -791,16 +1180,15 @@ def extract_audio(
         text=True,
     )
 
-    if result.returncode != 0:
-        print(
-            "Could not convert audio to WAV."
-        )
-        return False
-
-    return (
-        os.path.exists(audio_path)
-        and os.path.getsize(audio_path) > 0
+    has_wav = (
+        result.returncode == 0
+        and os.path.isfile(audio_wav)
+        and os.path.getsize(
+            audio_wav
+        ) > 0
     )
+
+    return has_audio, has_wav
 
 
 # ============================================================
@@ -813,136 +1201,143 @@ def apply_wav2lip(
     output_path,
 ):
 
-    try:
+    checkpoint = (
+        "/workspace/wav2lip.pth"
+    )
 
-        result = subprocess.run(
-            [
-                "python3",
-                "/wav2lip/inference.py",
+    inference_script = (
+        "/wav2lip/inference.py"
+    )
 
-                "--checkpoint_path",
-                "/workspace/wav2lip.pth",
+    if not os.path.isfile(
+        checkpoint
+    ):
 
-                "--face",
-                anime_video,
-
-                "--audio",
-                audio_path,
-
-                "--outfile",
-                output_path,
-
-                "--nosmooth",
-            ],
-
-            capture_output=True,
-            text=True,
-
-            cwd="/wav2lip",
-        )
-
-        if result.returncode == 0:
-
-            print(
-                "Wav2Lip processing completed."
-            )
-
-            return True
-
-        print(
-            "Wav2Lip failed:"
-        )
-
-        print(
-            result.stderr[-2000:]
+        log(
+            "Wav2Lip checkpoint not found."
         )
 
         return False
 
-    except Exception as e:
+    if not os.path.isfile(
+        inference_script
+    ):
 
-        print(
-            f"Wav2Lip exception: {e}"
+        log(
+            "Wav2Lip inference.py not found."
         )
 
         return False
 
+    command = [
+        "python3",
 
-# ============================================================
-# Save frames
-# ============================================================
+        inference_script,
 
-def save_frames(
-    frames,
-    output_dir,
-):
+        "--checkpoint_path",
+        checkpoint,
 
-    os.makedirs(
-        output_dir,
-        exist_ok=True,
-    )
+        "--face",
+        anime_video,
 
-    for i, frame in enumerate(frames):
+        "--audio",
+        audio_path,
 
-        path = os.path.join(
-            output_dir,
-            f"out_{i:06d}.png",
-        )
+        "--outfile",
+        output_path,
 
-        frame.save(
-            path,
-            format="PNG",
-        )
+        "--nosmooth",
+    ]
 
-
-# ============================================================
-# Encode video
-# ============================================================
-
-def encode_video(
-    frames_dir,
-    output_video,
-):
-
-    input_pattern = os.path.join(
-        frames_dir,
-        "out_%06d.png",
-    )
-
-    print(
-        "Encoding video..."
+    log(
+        "Running Wav2Lip..."
     )
 
     result = subprocess.run(
-        [
-            "ffmpeg",
-            "-hide_banner",
-            "-loglevel",
-            "error",
+        command,
+        capture_output=True,
+        text=True,
+        cwd="/wav2lip",
+    )
 
-            "-framerate",
-            str(FPS),
+    if result.returncode != 0:
 
-            "-i",
-            input_pattern,
+        log(
+            "Wav2Lip failed."
+        )
 
-            "-c:v",
-            "libx264",
+        log(
+            result.stderr[-4000:]
+        )
 
-            # Higher quality than the original code.
-            "-crf",
-            "15",
+        return False
 
-            "-preset",
-            "medium",
+    if not os.path.isfile(
+        output_path
+    ):
 
-            "-pix_fmt",
-            "yuv420p",
+        return False
 
-            output_video,
+    if os.path.getsize(
+        output_path
+    ) == 0:
 
-            "-y",
-        ],
+        return False
+
+    log(
+        "Wav2Lip completed."
+    )
+
+    return True
+
+
+# ============================================================
+# Attach audio
+# ============================================================
+
+def attach_audio(
+    video_path,
+    audio_path,
+    output_path,
+):
+
+    command = [
+        "ffmpeg",
+
+        "-hide_banner",
+        "-loglevel",
+        "error",
+
+        "-i",
+        video_path,
+
+        "-i",
+        audio_path,
+
+        "-map",
+        "0:v:0",
+
+        "-map",
+        "1:a:0",
+
+        "-c:v",
+        "copy",
+
+        "-c:a",
+        "aac",
+
+        "-shortest",
+
+        "-movflags",
+        "+faststart",
+
+        output_path,
+
+        "-y",
+    ]
+
+    result = subprocess.run(
+        command,
         capture_output=True,
         text=True,
     )
@@ -950,80 +1345,59 @@ def encode_video(
     if result.returncode != 0:
 
         raise RuntimeError(
-            "Video encoding failed:\n"
+            "Audio muxing failed:\n"
             + result.stderr
         )
 
-    print(
-        f"Video encoded: {output_video}"
-    )
+    return output_path
 
 
 # ============================================================
-# Probe original video
-# ============================================================
-
-def probe_video(
-    input_video,
-):
-
-    result = subprocess.run(
-        [
-            "ffprobe",
-            "-v",
-            "quiet",
-
-            "-print_format",
-            "json",
-
-            "-show_streams",
-
-            "-show_entries",
-            "stream=codec_type,width,height,"
-            "r_frame_rate,duration:stream_tags=rotate",
-
-            input_video,
-        ],
-
-        capture_output=True,
-        text=True,
-    )
-
-    try:
-        return _json.loads(
-            result.stdout
-        )
-
-    except Exception:
-
-        return {}
-
-
-# ============================================================
-# Main handler
+# Handler
 # ============================================================
 
 def handler(job):
 
-    job_input = job["input"]
+    job_input = job.get(
+        "input",
+        {}
+    )
 
     video_b64 = job_input.get(
-        "video",
-        "",
+        "video"
     )
 
     if not video_b64:
 
         raise ValueError(
-            "Input video is missing."
+            "input.video is required."
         )
+
+    log("=" * 70)
+    log("NEW JOB")
+    log("=" * 70)
 
     # --------------------------------------------------------
     # Decode input
     # --------------------------------------------------------
 
-    video_bytes = base64.b64decode(
-        video_b64
+    try:
+
+        video_bytes = (
+            base64.b64decode(
+                video_b64
+            )
+        )
+
+    except Exception as error:
+
+        raise ValueError(
+            f"Invalid base64 video: {error}"
+        )
+
+    log(
+        f"Input video: "
+        f"{len(video_bytes) / 1024**2:.2f} MB"
     )
 
     # --------------------------------------------------------
@@ -1036,7 +1410,14 @@ def handler(job):
     # Temporary directory
     # --------------------------------------------------------
 
-    with tempfile.TemporaryDirectory() as tmpdir:
+    with tempfile.TemporaryDirectory(
+        prefix="animatediff_"
+    ) as tmpdir:
+
+        log(
+            f"Temporary directory: "
+            f"{tmpdir}"
+        )
 
         input_video = os.path.join(
             tmpdir,
@@ -1048,12 +1429,7 @@ def handler(job):
             "frames",
         )
 
-        output_frames_dir = os.path.join(
-            tmpdir,
-            "output_frames",
-        )
-
-        anime_no_audio = os.path.join(
+        anime_video = os.path.join(
             tmpdir,
             "anime_no_audio.mp4",
         )
@@ -1079,292 +1455,160 @@ def handler(job):
         )
 
         # ----------------------------------------------------
-        # Save input
+        # Write input
         # ----------------------------------------------------
 
         with open(
             input_video,
             "wb",
-        ) as f:
+        ) as file:
 
-            f.write(
+            file.write(
                 video_bytes
             )
-
-        # ----------------------------------------------------
-        # Probe
-        # ----------------------------------------------------
-
-        probe_data = probe_video(
-            input_video
-        )
-
-        for stream in probe_data.get(
-            "streams",
-            [],
-        ):
-
-            if (
-                stream.get(
-                    "codec_type"
-                )
-                == "video"
-            ):
-
-                print(
-                    "Original video:"
-                )
-
-                print(
-                    f"  {stream.get('width')}x"
-                    f"{stream.get('height')}"
-                )
-
-                print(
-                    f"  FPS: "
-                    f"{stream.get('r_frame_rate')}"
-                )
-
-                print(
-                    f"  rotation: "
-                    f"{stream.get('tags', {}).get('rotate', 0)}"
-                )
-
-                break
 
         # ----------------------------------------------------
         # Audio
         # ----------------------------------------------------
 
-        has_audio = extract_audio(
-            input_video,
-            audio_path,
-            audio_wav,
+        has_audio, has_audio_wav = (
+            extract_audio(
+                input_video,
+                audio_path,
+                audio_wav,
+            )
         )
 
-        print(
-            f"Audio: {has_audio}"
+        log(
+            f"Audio available: "
+            f"{has_audio}"
+        )
+
+        log(
+            f"WAV available: "
+            f"{has_audio_wav}"
         )
 
         # ----------------------------------------------------
         # Extract frames
-        #
-        # IMPORTANT:
-        #
-        # Unlike the previous code, this always uses
-        # exactly the same resolution as ComfyUI:
-        #
-        # 320 x 568
-        #
-        # This is critical for comparison.
         # ----------------------------------------------------
 
-        input_frames = extract_video_frames(
+        frame_paths = extract_frames(
             input_video,
             frames_dir,
         )
 
-        print(
-            f"Input frames: "
+        # ----------------------------------------------------
+        # Load frames
+        # ----------------------------------------------------
+
+        input_frames = []
+
+        for path in frame_paths:
+
+            with Image.open(
+                path
+            ) as image:
+
+                input_frames.append(
+                    image.convert(
+                        "RGB"
+                    )
+                )
+
+        log(
+            f"Input frames loaded: "
             f"{len(input_frames)}"
         )
 
         # ----------------------------------------------------
-        # Process
+        # AnimateDiff
         # ----------------------------------------------------
 
         result_frames = (
-            process_frames_with_context(
+            process_video_frames(
                 input_frames
             )
         )
 
-        print(
-            f"Generated frames: "
-            f"{len(result_frames)}"
-        )
-
         # ----------------------------------------------------
-        # Save PNG frames
+        # Encode
         # ----------------------------------------------------
 
-        save_frames(
+        save_video(
             result_frames,
-            output_frames_dir,
-        )
-
-        # ----------------------------------------------------
-        # Encode anime video
-        # ----------------------------------------------------
-
-        encode_video(
-            output_frames_dir,
-            anime_no_audio,
+            anime_video,
         )
 
         # ----------------------------------------------------
         # Wav2Lip
-        # ----------------------------------------------------
+        # --------------------------------------------------------
 
         wav2lip_success = False
 
-        if (
-            has_audio
-            and os.path.exists(audio_wav)
-            and os.path.exists(
-                "/workspace/wav2lip.pth"
-            )
-        ):
-
-            print(
-                "Running Wav2Lip..."
-            )
+        if has_audio_wav:
 
             wav2lip_success = (
                 apply_wav2lip(
-                    anime_no_audio,
+                    anime_video,
                     audio_wav,
                     wav2lip_video,
                 )
             )
 
         # ----------------------------------------------------
-        # Final audio/video mux
+        # Final video
         # ----------------------------------------------------
 
         if (
             wav2lip_success
-            and os.path.exists(
+            and os.path.isfile(
                 wav2lip_video
             )
-            and os.path.getsize(
-                wav2lip_video
-            ) > 0
         ):
 
-            print(
-                "Muxing Wav2Lip video "
-                "with original audio..."
+            log(
+                "Using Wav2Lip result."
             )
 
-            result = subprocess.run(
-                [
-                    "ffmpeg",
-                    "-hide_banner",
-                    "-loglevel",
-                    "error",
-
-                    "-i",
-                    wav2lip_video,
-
-                    "-i",
-                    audio_path,
-
-                    "-c:v",
-                    "copy",
-
-                    "-c:a",
-                    "aac",
-
-                    "-shortest",
-
-                    output_video,
-
-                    "-y",
-                ],
-                capture_output=True,
-                text=True,
+            attach_audio(
+                wav2lip_video,
+                audio_path,
+                output_video,
             )
 
-            if result.returncode != 0:
+        elif has_audio:
 
-                print(
-                    "Wav2Lip mux failed."
-                )
-
-                # fallback
-                subprocess.run(
-                    [
-                        "ffmpeg",
-                        "-hide_banner",
-                        "-loglevel",
-                        "error",
-
-                        "-i",
-                        anime_no_audio,
-
-                        "-i",
-                        audio_path,
-
-                        "-c:v",
-                        "copy",
-
-                        "-c:a",
-                        "aac",
-
-                        "-shortest",
-
-                        output_video,
-
-                        "-y",
-                    ],
-                    check=True,
-                )
-
-        elif (
-            has_audio
-            and os.path.exists(audio_path)
-        ):
-
-            print(
-                "Wav2Lip unavailable. "
-                "Muxing original audio."
+            log(
+                "Wav2Lip unavailable/failed."
             )
 
-            subprocess.run(
-                [
-                    "ffmpeg",
-                    "-hide_banner",
-                    "-loglevel",
-                    "error",
+            log(
+                "Attaching original audio."
+            )
 
-                    "-i",
-                    anime_no_audio,
-
-                    "-i",
-                    audio_path,
-
-                    "-c:v",
-                    "copy",
-
-                    "-c:a",
-                    "aac",
-
-                    "-shortest",
-
-                    output_video,
-
-                    "-y",
-                ],
-                check=True,
+            attach_audio(
+                anime_video,
+                audio_path,
+                output_video,
             )
 
         else:
 
-            print(
-                "No audio. "
-                "Using video only."
+            log(
+                "Input has no audio."
             )
 
             subprocess.run(
                 [
                     "ffmpeg",
+
                     "-hide_banner",
                     "-loglevel",
                     "error",
 
                     "-i",
-                    anime_no_audio,
+                    anime_video,
 
                     "-c",
                     "copy",
@@ -1377,46 +1621,71 @@ def handler(job):
             )
 
         # ----------------------------------------------------
-        # Return Base64
+        # Base64
         # ----------------------------------------------------
 
         with open(
             output_video,
             "rb",
-        ) as f:
+        ) as file:
 
             result_b64 = (
                 base64.b64encode(
-                    f.read()
-                ).decode()
+                    file.read()
+                ).decode(
+                    "utf-8"
+                )
             )
 
-        # ----------------------------------------------------
-        # Cleanup
-        # ----------------------------------------------------
-
-        cleanup_memory()
+        log("=" * 70)
+        log(
+            "JOB COMPLETED"
+        )
+        log("=" * 70)
 
         return {
             "video": result_b64,
-            "frames": len(result_frames),
-            "width": WIDTH,
-            "height": HEIGHT,
+
+            "frames": len(
+                result_frames
+            ),
+
+            "width": OUTPUT_WIDTH,
+
+            "height": OUTPUT_HEIGHT,
+
             "fps": FPS,
-            "steps": NUM_INFERENCE_STEPS,
-            "cfg": GUIDANCE_SCALE,
-            "strength": STRENGTH,
-            "seed": SEED,
-            "motion_module": "mm_sd_v15_v2.ckpt",
         }
 
 
 # ============================================================
-# RunPod
+# RunPod Serverless
 # ============================================================
 
-runpod.serverless.start(
-    {
-        "handler": handler
-    }
-)
+if __name__ == "__main__":
+
+    log("=" * 70)
+    log("Starting RunPod Serverless Worker")
+    log("=" * 70)
+
+    log(
+        "Expected environment:"
+    )
+
+    log(
+        "CUDA 12.4"
+    )
+
+    log(
+        "PyTorch 2.5.1+cu124"
+    )
+
+    log(
+        "Diffusers 0.31.0"
+    )
+
+    runpod.serverless.start(
+        {
+            "handler": handler
+        }
+    )
