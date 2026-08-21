@@ -44,19 +44,21 @@ def load_model():
         # PEストレッチを実装（ComfyUI-AnimateDiff-Evolved相当）
         # AnimateDiffのモーションモジュールのPEを16→32にストレッチ
         def stretch_pe(unet, new_length=32):
+            import torch.nn.functional as F
+            count = 0
             for name, module in unet.named_modules():
-                if hasattr(module, 'pos_encoder') and hasattr(module.pos_encoder, 'pe'):
-                    old_pe = module.pos_encoder.pe  # shape: [1, max_len, dim]
+                # diffusersのAnimateDiffはpe属性を直接持つ
+                if hasattr(module, 'pe'):
+                    old_pe = module.pe  # shape: [1, max_len, dim]
                     old_len = old_pe.shape[1]
-                    if old_len < new_length:
-                        import torch.nn.functional as F
-                        # 線形補間でPEをストレッチ
+                    if old_len != new_length:
                         pe_t = old_pe.permute(0, 2, 1)  # [1, dim, max_len]
-                        new_pe = F.interpolate(pe_t, size=new_length, mode='linear', align_corners=True)
-                        module.pos_encoder.pe = new_pe.permute(0, 2, 1)  # [1, new_length, dim]
+                        new_pe = F.interpolate(pe_t.float(), size=new_length, mode='linear', align_corners=True)
+                        module.pe = new_pe.permute(0, 2, 1).to(old_pe.dtype)
+                        count += 1
                         print(f"PE stretch: {name} {old_len} -> {new_length}")
+            print(f"PEストレッチ完了: {count}個のモジュールに適用")
         stretch_pe(pipe.unet, new_length=32)
-        print("PEストレッチ完了")
 
         # EasyNegativeV2 embeddingを読み込む
         if os.path.exists("/workspace/embeddings/EasyNegativeV2.safetensors"):
