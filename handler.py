@@ -41,18 +41,6 @@ def load_model():
             pipe.scheduler.config,
             use_karras_sigmas=True,
         )
-        # PEストレッチ（ComfyUI-AnimateDiff-Evolved相当）pipe.unet構築後に適用
-        import torch.nn.functional as F
-        pe_count = 0
-        new_length = 24  # 3秒×8fps
-        for name, module in pipe.unet.named_modules():
-            if hasattr(module, 'pe') and hasattr(module.pe, 'shape'):
-                old_pe = module.pe
-                pe_t = old_pe.permute(0, 2, 1).float()
-                new_pe = F.interpolate(pe_t, size=new_length, mode='linear', align_corners=True)
-                module.pe = new_pe.permute(0, 2, 1).to(old_pe.dtype)
-                pe_count += 1
-        print(f"PEストレッチ完了: {pe_count}個のモジュールに適用 (32->{new_length})")
 
         # EasyNegativeV2 embeddingを読み込む
         if os.path.exists("/workspace/embeddings/EasyNegativeV2.safetensors"):
