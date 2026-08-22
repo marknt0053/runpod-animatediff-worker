@@ -41,7 +41,6 @@ def load_model():
             pipe.scheduler.config,
             use_karras_sigmas=True,
         )
-
         # EasyNegativeV2 embeddingを読み込む
         if os.path.exists("/workspace/embeddings/EasyNegativeV2.safetensors"):
             pipe.load_textual_inversion("/workspace/embeddings/EasyNegativeV2.safetensors", token="EasyNegativeV2")
@@ -71,7 +70,7 @@ def apply_wav2lip(anime_video, audio_path, output_path, tmpdir):
 def process_frames_with_context(frames, pipe, new_h, new_w, context_length=16, context_overlap=4):
     total_frames = len(frames)
     prompt = "anime style, studio ghibli, cel shading, vivid colors, masterpiece, high quality, detailed illustration"
-    negative_prompt = "embedding:EasyNegativeV2, worst quality, low quality, blurry, watermark, realistic, photography, noise, grain, flickering, particles, sparkles, floating objects"
+    negative_prompt = "EasyNegativeV2, worst quality, low quality, blurry, watermark, realistic, photography, noise, grain, flickering, particles, sparkles, floating objects"
 
     # 32フレームを超える場合は32フレームに切り詰める
     if total_frames > 32:
