@@ -27,7 +27,7 @@ MODEL_DIR = "/workspace/models"
 
 CHECKPOINT_PATH = os.path.join(
     MODEL_DIR,
-    "Counterfeit-V3.0_fix_fp16.safetensors",
+    "counterfeit_v30.safetensors",
 )
 
 MOTION_MODULE_PATH = os.path.join(
