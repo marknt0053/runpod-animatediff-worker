@@ -212,6 +212,46 @@ def check_models():
     print("=" * 70)
     print("MODEL CHECK")
     print("=" * 70)
+    print("Checking Network Volume...")
+
+    print(
+        f"/runpod-volume exists: "
+        f"{os.path.exists('/runpod-volume')}"
+    )
+
+    if os.path.exists("/runpod-volume"):
+
+        print("Contents of /runpod-volume:")
+
+        for name in sorted(
+            os.listdir("/runpod-volume")
+        ):
+
+            path = os.path.join(
+                "/runpod-volume",
+                name
+            )
+
+            if os.path.isdir(path):
+                print(f"  DIR : {name}")
+
+            elif os.path.isfile(path):
+
+                size_gb = (
+                    os.path.getsize(path)
+                    / 1024**3
+                )
+
+                print(
+                    f"  FILE: {name} "
+                    f"({size_gb:.2f} GB)"
+                )
+
+    print("=" * 70)
+
+    print("=" * 70)
+    print("MODEL CHECK")
+    print("=" * 70)
 
     # --------------------------------------------------------
     # Model directory
