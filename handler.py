@@ -209,25 +209,80 @@ def check_gpu():
 
 def check_models():
 
-    log("=" * 70)
-    log("MODEL CHECK")
-    log("=" * 70)
+    print("=" * 70)
+    print("MODEL CHECK")
+    print("=" * 70)
 
-    log(
-        f"Model directory: "
-        f"{MODEL_DIR}"
+    # --------------------------------------------------------
+    # Model directory
+    # --------------------------------------------------------
+
+    print(f"Model directory: {MODEL_DIR}")
+
+    exists = os.path.exists(MODEL_DIR)
+
+    print(
+        f"Model directory exists: {exists}"
     )
 
-    if not os.path.isdir(MODEL_DIR):
+    if not exists:
 
         raise FileNotFoundError(
             f"Model directory does not exist: "
             f"{MODEL_DIR}"
         )
 
+    if not os.path.isdir(MODEL_DIR):
+
+        raise FileNotFoundError(
+            f"Model path is not a directory: "
+            f"{MODEL_DIR}"
+        )
+
     # --------------------------------------------------------
-    # Counterfeit
+    # Show directory contents
+    #
+    # Network Volumeが正しくマウントされているか
+    # 確認するためのログ
     # --------------------------------------------------------
+
+    print(
+        "Model directory contents:"
+    )
+
+    for name in sorted(
+        os.listdir(MODEL_DIR)
+    ):
+
+        path = os.path.join(
+            MODEL_DIR,
+            name
+        )
+
+        if os.path.isfile(path):
+
+            size_gb = (
+                os.path.getsize(path)
+                / 1024**3
+            )
+
+            print(
+                f"  FILE: {name} "
+                f"({size_gb:.2f} GB)"
+            )
+
+        elif os.path.isdir(path):
+
+            print(
+                f"  DIR : {name}"
+            )
+
+    # --------------------------------------------------------
+    # Counterfeit V3
+    # --------------------------------------------------------
+
+    print("-" * 70)
+    print("Checking Counterfeit model...")
 
     if not os.path.isfile(
         CHECKPOINT_PATH
@@ -245,14 +300,22 @@ def check_models():
         / 1024**3
     )
 
-    log(
+    print(
         f"Counterfeit model: "
+        f"{CHECKPOINT_PATH}"
+    )
+
+    print(
+        f"Size: "
         f"{checkpoint_size:.2f} GB"
     )
 
     # --------------------------------------------------------
-    # Motion module
+    # AnimateDiff Motion Module
     # --------------------------------------------------------
+
+    print("-" * 70)
+    print("Checking AnimateDiff motion module...")
 
     if not os.path.isfile(
         MOTION_MODULE_PATH
@@ -270,14 +333,22 @@ def check_models():
         / 1024**3
     )
 
-    log(
+    print(
         f"Motion module: "
+        f"{MOTION_MODULE_PATH}"
+    )
+
+    print(
+        f"Size: "
         f"{motion_size:.2f} GB"
     )
 
     # --------------------------------------------------------
-    # EasyNegative
+    # EasyNegativeV2
     # --------------------------------------------------------
+
+    print("-" * 70)
+    print("Checking EasyNegativeV2...")
 
     if os.path.isfile(
         EMBEDDING_PATH
@@ -290,24 +361,34 @@ def check_models():
             / 1024**2
         )
 
-        log(
+        print(
             f"EasyNegativeV2: "
+            f"{EMBEDDING_PATH}"
+        )
+
+        print(
+            f"Size: "
             f"{embedding_size:.2f} MB"
         )
 
     else:
 
-        log(
+        print(
             "EasyNegativeV2 not found."
         )
 
-        log(
+        print(
             "Textual inversion will be skipped."
         )
 
-    log("=" * 70)
+    # --------------------------------------------------------
+    # Complete
+    # --------------------------------------------------------
 
-
+    print("=" * 70)
+    print("MODEL CHECK PASSED")
+    print("=" * 70)
+    
 # ============================================================
 # Model loading
 # ============================================================
