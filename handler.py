@@ -30,10 +30,7 @@ CHECKPOINT_PATH = os.path.join(
     "counterfeit_v30.safetensors",
 )
 
-MOTION_MODULE_PATH = os.path.join(
-    MODEL_DIR,
-    "mm_sd_v15_v2.ckpt",
-)
+MOTION_MODULE_PATH = "/workspace/mm_sd_v15_v2.ckpt"
 
 EMBEDDING_PATH = "/workspace/embeddings/EasyNegativeV2.safetensors"
 
