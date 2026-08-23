@@ -23,16 +23,16 @@ from diffusers import (
 # Configuration
 # ============================================================
 
-MODEL_DIR = "/workspace/models"
+MODEL_DIR = "/runpod-volume/models"
 
 CHECKPOINT_PATH = os.path.join(
     MODEL_DIR,
     "Counterfeit-V3.0_fix_fp16.safetensors",
 )
 
-MOTION_MODULE_PATH = "/workspace/mm_sd_v15_v2.ckpt"
+MOTION_MODULE_PATH = "/runpod-volume/mm_sd_v15_v2.ckpt"
 
-EMBEDDING_PATH = "/workspace/embeddings/EasyNegativeV2.safetensors"
+EMBEDDING_PATH = "/runpod-volume/embeddings/EasyNegativeV2.safetensors"
 
 
 # ============================================================
@@ -1195,7 +1195,7 @@ def apply_wav2lip(
 ):
 
     checkpoint = (
-        "/workspace/wav2lip.pth"
+        "/runpod-volume/wav2lip.pth"
     )
 
     inference_script = (
