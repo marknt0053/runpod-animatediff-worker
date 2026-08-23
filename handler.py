@@ -1042,10 +1042,6 @@ def save_video(
             )
         )
 
-    # 最後の1フレームをカット（異常フレーム対策）
-    total_frames = len(frames)
-    trim_duration = (total_frames - 1) / FPS
-
     command = [
         "ffmpeg",
 
@@ -1058,9 +1054,6 @@ def save_video(
 
         "-i",
         frame_pattern,
-
-        "-t",
-        str(trim_duration),
 
         "-c:v",
         "libx264",
