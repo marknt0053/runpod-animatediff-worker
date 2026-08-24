@@ -1071,6 +1071,11 @@ def save_video(
 
         "-y",
     ]
+    # 最後の1フレームをカット（異常フレーム対策）
+    total_frames = len(frames)
+    trim_duration = (total_frames - 1) / FPS
+    command.insert(command.index(output_path), "-t")
+    command.insert(command.index(output_path), str(trim_duration))
 
     result = subprocess.run(
         command,
@@ -1328,6 +1333,11 @@ def attach_audio(
 
         "-y",
     ]
+    # 最後の1フレームをカット（異常フレーム対策）
+    total_frames = len(frames)
+    trim_duration = (total_frames - 1) / FPS
+    command.insert(command.index(output_path), "-t")
+    command.insert(command.index(output_path), str(trim_duration))
 
     result = subprocess.run(
         command,
