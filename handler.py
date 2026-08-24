@@ -667,6 +667,11 @@ def create_context_windows(
             num_frames,
         )
 
+        # 最後のwindowが小さすぎる場合は後ろからCONTEXT_LENGTH分取る
+        if end >= num_frames and (end - start) < CONTEXT_LENGTH:
+            start = max(0, num_frames - CONTEXT_LENGTH)
+            end = num_frames
+
         indices = list(
             range(
                 start,
@@ -685,8 +690,6 @@ def create_context_windows(
         start += step
 
     return windows
-
-
 # ============================================================
 # Pyramid weights
 # ============================================================
