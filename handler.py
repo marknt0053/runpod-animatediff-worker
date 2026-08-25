@@ -907,9 +907,11 @@ def process_video_frames(
                 f"{len(indices)}"
             )
 
+        is_last = (window_number == len(windows))
         weights = (
             create_pyramid_weights(
-                len(indices)
+                len(indices),
+                is_last_window=is_last,
             )
         )
 
@@ -1074,12 +1076,7 @@ def save_video(
 
         "-y",
     ]
-    # ダミーフレーム分をカット（元動画の長さに戻す）
-    total_frames = len(frames)
-    trim_frames = max(1, total_frames - CONTEXT_LENGTH)
-    trim_duration = trim_frames / FPS
-    command.insert(command.index(output_path), "-t")
-    command.insert(command.index(output_path), str(trim_duration))
+
 
     result = subprocess.run(
         command,
@@ -1337,12 +1334,7 @@ def attach_audio(
 
         "-y",
     ]
-    # ダミーフレーム分をカット（元動画の長さに戻す）
-    total_frames = len(frames)
-    trim_frames = max(1, total_frames - CONTEXT_LENGTH)
-    trim_duration = trim_frames / FPS
-    command.insert(command.index(output_path), "-t")
-    command.insert(command.index(output_path), str(trim_duration))
+
 
     result = subprocess.run(
         command,
@@ -1527,15 +1519,6 @@ def handler(job):
         log(
             f"Input frames loaded: "
             f"{len(input_frames)}"
-        )
-
-        # ダミーフレームを追加（最後のフレームをCONTEXT_OVERLAP分複製）
-        original_frame_count = len(input_frames)
-        dummy_frames = [input_frames[-1].copy() for _ in range(CONTEXT_LENGTH)]
-        input_frames = input_frames + dummy_frames
-        log(
-            f"Added {CONTEXT_LENGTH} dummy frames. "
-            f"Total: {len(input_frames)}"
         )
 
         # ----------------------------------------------------
