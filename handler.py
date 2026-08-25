@@ -1074,9 +1074,10 @@ def save_video(
 
         "-y",
     ]
-    # 最後の1フレームをカット（異常フレーム対策）
+    # ダミーフレーム分をカット（元動画の長さに戻す）
     total_frames = len(frames)
-    trim_duration = (total_frames - 1) / FPS
+    trim_frames = max(1, total_frames - CONTEXT_OVERLAP)
+    trim_duration = trim_frames / FPS
     command.insert(command.index(output_path), "-t")
     command.insert(command.index(output_path), str(trim_duration))
 
@@ -1336,9 +1337,10 @@ def attach_audio(
 
         "-y",
     ]
-    # 最後の1フレームをカット（異常フレーム対策）
+    # ダミーフレーム分をカット（元動画の長さに戻す）
     total_frames = len(frames)
-    trim_duration = (total_frames - 1) / FPS
+    trim_frames = max(1, total_frames - CONTEXT_OVERLAP)
+    trim_duration = trim_frames / FPS
     command.insert(command.index(output_path), "-t")
     command.insert(command.index(output_path), str(trim_duration))
 
@@ -1525,6 +1527,15 @@ def handler(job):
         log(
             f"Input frames loaded: "
             f"{len(input_frames)}"
+        )
+
+        # ダミーフレームを追加（最後のフレームをCONTEXT_OVERLAP分複製）
+        original_frame_count = len(input_frames)
+        dummy_frames = [input_frames[-1].copy() for _ in range(CONTEXT_OVERLAP)]
+        input_frames = input_frames + dummy_frames
+        log(
+            f"Added {CONTEXT_OVERLAP} dummy frames. "
+            f"Total: {len(input_frames)}"
         )
 
         # ----------------------------------------------------
