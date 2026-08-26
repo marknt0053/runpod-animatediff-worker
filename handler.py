@@ -1540,7 +1540,7 @@ def handler(job):
         half = CONTEXT_LENGTH // 2
         remainder = len(input_frames) % step
         dummy_count = (half - remainder) % step + half
-        dummy_frames = [f.copy() for f in input_frames[:dummy_count]]
+        dummy_frames = [Image.new("RGB", (OUTPUT_WIDTH, OUTPUT_HEIGHT), (0, 0, 0)) for _ in range(dummy_count)]
         input_frames = input_frames + dummy_frames
         log(
             f"Added {dummy_count} dummy frames dynamically. "
