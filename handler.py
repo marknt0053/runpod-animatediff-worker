@@ -1021,6 +1021,7 @@ def process_video_frames(
 def save_video(
     frames,
     output_path,
+    dummy_count=0,
 ):
 
     output_dir = os.path.dirname(
@@ -1083,12 +1084,13 @@ def save_video(
     ]
 
 
-    # ダミーフレーム分をカット
-    total_frames = len(frames)
-    trim_frames = max(1, total_frames - CONTEXT_LENGTH)
-    trim_duration = trim_frames / FPS
-    command.insert(command.index(output_path), "-t")
-    command.insert(command.index(output_path), str(trim_duration))
+    # ダミーフレーム分をカット（元動画の長さに戻す）
+    if dummy_count > 0:
+        total_frames = len(frames)
+        trim_frames = max(1, total_frames - dummy_count)
+        trim_duration = trim_frames / FPS
+        command.insert(command.index(output_path), "-t")
+        command.insert(command.index(output_path), str(trim_duration))
 
     result = subprocess.run(
         command,
@@ -1533,11 +1535,15 @@ def handler(job):
             f"{len(input_frames)}"
         )
 
-        # 最初のCONTEXT_LENGTH分のフレームをダミーとして末尾に追加
-        dummy_frames = [f.copy() for f in input_frames[:CONTEXT_LENGTH]]
+        # 元動画の末尾がContext windowの中央付近に来るようにダミーフレーム数を動的計算
+        step = CONTEXT_LENGTH - CONTEXT_OVERLAP
+        half = CONTEXT_LENGTH // 2
+        remainder = len(input_frames) % step
+        dummy_count = (half - remainder) % step + half
+        dummy_frames = [f.copy() for f in input_frames[:dummy_count]]
         input_frames = input_frames + dummy_frames
         log(
-            f"Added {CONTEXT_LENGTH} dummy frames from start. "
+            f"Added {dummy_count} dummy frames dynamically. "
             f"Total: {len(input_frames)}"
         )
 
@@ -1558,6 +1564,7 @@ def handler(job):
         save_video(
             result_frames,
             anime_video,
+            dummy_count=dummy_count,
         )
 
         # ----------------------------------------------------
