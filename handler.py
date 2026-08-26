@@ -66,7 +66,7 @@ SEED = 41868074274227
 # ============================================================
 
 CONTEXT_LENGTH = 16
-CONTEXT_OVERLAP = 4
+CONTEXT_OVERLAP = 8
 CONTEXT_STRIDE = 1
 
 
