@@ -23,4 +23,6 @@ jobs:
         with:
           context: .
           push: true
-          tags: masahiro0826/runpod-animatediff-worker:latest
+          tags: |
+            masahiro0826/runpod-animatediff-worker:latest
+            masahiro0826/runpod-animatediff-worker:${{ github.sha }}
