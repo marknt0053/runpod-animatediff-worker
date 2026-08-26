@@ -1083,6 +1083,13 @@ def save_video(
     ]
 
 
+    # ダミーフレーム分をカット
+    total_frames = len(frames)
+    trim_frames = max(1, total_frames - CONTEXT_LENGTH)
+    trim_duration = trim_frames / FPS
+    command.insert(command.index(output_path), "-t")
+    command.insert(command.index(output_path), str(trim_duration))
+
     result = subprocess.run(
         command,
         capture_output=True,
@@ -1524,6 +1531,14 @@ def handler(job):
         log(
             f"Input frames loaded: "
             f"{len(input_frames)}"
+        )
+
+        # ダミーフレームを追加（最後のフレームをCONTEXT_LENGTH分複製）
+        dummy_frames = [input_frames[-1].copy() for _ in range(CONTEXT_LENGTH)]
+        input_frames = input_frames + dummy_frames
+        log(
+            f"Added {CONTEXT_LENGTH} dummy frames. "
+            f"Total: {len(input_frames)}"
         )
 
         # ----------------------------------------------------
