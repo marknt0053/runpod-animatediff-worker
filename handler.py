@@ -1930,29 +1930,37 @@ def handler(job):
             log("CHUNK PROCESSING")
             log("=" * 70)
             all_result_frames = []
-            num_chunks = (original_count + CHUNK_FRAMES - 1) // CHUNK_FRAMES
+            chunk_starts = []
+            start = 0
+            while start < original_count:
+                chunk_starts.append(start)
+                start += CHUNK_FRAMES
+            num_chunks = len(chunk_starts)
             log(f"Total frames: {original_count}")
             log(f"Chunk size: {CHUNK_FRAMES}")
             log(f"Total chunks: {num_chunks}")
-            for chunk_idx in range(num_chunks):
-                chunk_start = chunk_idx * CHUNK_FRAMES
+            for chunk_idx, chunk_start in enumerate(chunk_starts):
+                is_last_chunk = (chunk_idx == num_chunks - 1)
                 chunk_end = min(chunk_start + CHUNK_FRAMES, original_count)
-                chunk_original = original_frames[chunk_start:chunk_end]
+                if is_last_chunk and (chunk_end - chunk_start) < CHUNK_FRAMES:
+                    actual_start = max(0, original_count - CHUNK_FRAMES)
+                    chunk_frames_for_processing = original_frames[actual_start:original_count]
+                    output_start = chunk_start - actual_start
+                else:
+                    chunk_frames_for_processing = original_frames[chunk_start:chunk_end]
+                    output_start = 0
                 log("=" * 70)
                 log(f"Chunk {chunk_idx + 1}/{num_chunks}: frames {chunk_start}-{chunk_end - 1}")
+                log(f"Processing frames: {len(chunk_frames_for_processing)}")
                 log("=" * 70)
-                chunk_extended = extend_frames(chunk_original, EXTEND_FRAMES)
+                chunk_extended = extend_frames(chunk_frames_for_processing, EXTEND_FRAMES)
                 chunk_result_extended = process_video_frames(chunk_extended)
-                chunk_result = apply_tail_fade_back(
-                    chunk_original,
-                    chunk_result_extended,
-                    EXTEND_FRAMES,
-                )
+                chunk_result_all = list(chunk_result_extended[:len(chunk_frames_for_processing)])
+                chunk_result = chunk_result_all[output_start:]
                 all_result_frames.extend(chunk_result)
                 log(f"Chunk {chunk_idx + 1} done: {len(chunk_result)} frames")
             result_frames = all_result_frames
-            log(f"All chunks processed: {len(result_frames)} frames total")
-        # ----------------------------------------------------
+            log(f"All chunks processed: {len(result_frames)} frames total")        # ----------------------------------------------------
         # Encode
         # ----------------------------------------------------
 
