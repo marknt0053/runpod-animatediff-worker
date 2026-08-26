@@ -1493,6 +1493,39 @@ def handler(job):
             )
         )
 
+        # 動画を延長（横転対策）
+        EXTEND_SECONDS = 2.0
+        extend_clip = os.path.join(tmpdir, "extend_clip.mp4")
+        extended_video = os.path.join(tmpdir, "extended.mp4")
+        concat_list = os.path.join(tmpdir, "concat.txt")
+
+        subprocess.run([
+            "ffmpeg", "-hide_banner", "-loglevel", "error",
+            "-i", input_video,
+            "-t", str(EXTEND_SECONDS),
+            "-c", "copy",
+            extend_clip, "-y",
+        ], check=True)
+
+        with open(concat_list, "w") as cf:
+            cf.write(f"file '{input_video}'
+")
+            cf.write(f"file '{extend_clip}'
+")
+
+        subprocess.run([
+            "ffmpeg", "-hide_banner", "-loglevel", "error",
+            "-f", "concat",
+            "-safe", "0",
+            "-i", concat_list,
+            "-c", "copy",
+            extended_video, "-y",
+        ], check=True)
+
+        original_input_video = input_video
+        input_video = extended_video
+        log(f"Extended video by {EXTEND_SECONDS}s for stable processing.")
+
         log(
             f"Audio available: "
             f"{has_audio}"
@@ -1535,18 +1568,6 @@ def handler(job):
             f"{len(input_frames)}"
         )
 
-        # 元動画の末尾がContext windowの中央付近に来るようにダミーフレーム数を動的計算
-        step = CONTEXT_LENGTH - CONTEXT_OVERLAP
-        half = CONTEXT_LENGTH // 2
-        remainder = len(input_frames) % step
-        dummy_count = (half - remainder) % step + half
-        dummy_frames = [Image.new("RGB", (OUTPUT_WIDTH, OUTPUT_HEIGHT), (0, 0, 0)) for _ in range(dummy_count)]
-        input_frames = input_frames + dummy_frames
-        log(
-            f"Added {dummy_count} dummy frames dynamically. "
-            f"Total: {len(input_frames)}"
-        )
-
         # ----------------------------------------------------
         # AnimateDiff
         # ----------------------------------------------------
@@ -1561,10 +1582,11 @@ def handler(job):
         # Encode
         # ----------------------------------------------------
 
+        extend_frames = int(EXTEND_SECONDS * FPS)
         save_video(
             result_frames,
             anime_video,
-            dummy_count=dummy_count,
+            dummy_count=extend_frames,
         )
 
         # ----------------------------------------------------
