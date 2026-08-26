@@ -63,20 +63,25 @@ SEED = 41868074274227
 
 # ============================================================
 # Tail extension
-#
-# 元動画の最後でAnimateDiffが横転する問題への対策。
-#
-# 元動画そのものをFFmpegで延長するのではなく、
-# 最後のフレームをメモリ上で複製する。
-#
-# 2秒 × 8fps = 16フレーム
 # ============================================================
+#
+# AnimateDiffの最後の数フレームで横転する問題を抑えるため、
+# 元動画の最後のフレームを複製して処理用のフレームを追加する。
+#
+# 重要:
+#   動画そのものをFFmpegで延長しない。
+#   Python上のフレーム配列だけを延長する。
+#
+# これにより、
+#
+#   元67フレーム + 16フレーム = 83フレーム
+#
+# のように、フレーム数を完全に制御できる。
+#
+# 最終出力では、この16フレームを必ず削除する。
+#
 
-EXTEND_SECONDS = 2.0
-
-EXTEND_FRAMES = int(
-    round(EXTEND_SECONDS * FPS)
-)
+EXTEND_FRAMES = 16
 
 
 # ============================================================
@@ -84,9 +89,7 @@ EXTEND_FRAMES = int(
 # ============================================================
 
 CONTEXT_LENGTH = 16
-
 CONTEXT_OVERLAP = 8
-
 CONTEXT_STRIDE = 1
 
 
@@ -171,11 +174,6 @@ def check_gpu():
 
         log(
             "ERROR: CUDA is not available."
-        )
-
-        log(
-            "This Worker must be started with "
-            "an NVIDIA GPU."
         )
 
         raise RuntimeError(
@@ -660,90 +658,89 @@ def extract_frames(
 
 # ============================================================
 # Extend frames
-#
-# 動画ファイルそのものを延長しない。
-#
-# 元動画の最後のフレームを複製して、
-# AnimateDiffにだけ延長フレームを渡す。
 # ============================================================
 
-def extend_frames_for_processing(
+def extend_frames_for_tail(
     frames,
+    extend_count,
 ):
 
-    original_count = len(frames)
+    if not frames:
 
-    if original_count == 0:
-
-        raise RuntimeError(
+        raise ValueError(
             "Cannot extend an empty frame list."
         )
 
+    if extend_count <= 0:
+
+        return list(frames)
+
     log("=" * 70)
-    log("EXTENDING FRAMES FOR TAIL STABILIZATION")
+    log("EXTENDING FRAME SEQUENCE FOR TAIL STABILIZATION")
     log("=" * 70)
 
+    original_count = len(frames)
+
     log(
-        f"Original frames: "
+        f"Original frame count: "
         f"{original_count}"
     )
 
     log(
-        f"Extension: "
-        f"{EXTEND_SECONDS:.2f} sec "
-        f"({EXTEND_FRAMES} frames)"
+        f"Extension frames: "
+        f"{extend_count}"
     )
 
     # --------------------------------------------------------
-    # 最後のフレームをコピー
-    #
-    # copy()を使うことで、
-    # 同じPILオブジェクトを参照し続けることを避ける。
+    # 最後のフレームを複製
     # --------------------------------------------------------
 
     last_frame = frames[-1]
 
-    extended = list(frames)
-
-    for _ in range(
-        EXTEND_FRAMES
-    ):
-
-        extended.append(
-            last_frame.copy()
-        )
+    extended_frames = (
+        list(frames)
+        +
+        [
+            last_frame
+            for _ in range(
+                extend_count
+            )
+        ]
+    )
 
     expected_count = (
         original_count
-        + EXTEND_FRAMES
+        + extend_count
     )
 
-    if len(extended) != expected_count:
+    actual_count = len(
+        extended_frames
+    )
+
+    if actual_count != expected_count:
 
         raise RuntimeError(
-            "Unexpected extended frame count: "
-            f"got {len(extended)}, "
+            "Frame extension failed: "
+            f"got {actual_count}, "
             f"expected {expected_count}"
         )
 
     log(
-        "Extension completed by "
-        "duplicating the final source frame."
+        f"Extended frame count: "
+        f"{actual_count}"
     )
 
     log(
-        f"Extended frames: "
-        f"{len(extended)}"
-    )
-
-    log(
-        f"Expected extended frames: "
+        f"Expected frame count: "
         f"{expected_count}"
     )
 
-    log("=" * 70)
+    log(
+        "The final source frame was duplicated "
+        f"{extend_count} times."
+    )
 
-    return extended
+    return extended_frames
 
 
 # ============================================================
@@ -768,76 +765,25 @@ def create_context_windows(
             )
         ]
 
-    # --------------------------------------------------------
-    # AnimateDiff context window
-    #
-    # 16 frame context
-    # 8 frame overlap
-    # 8 frame step
-    #
-    # 例:
-    #
-    # 0-15
-    # 8-23
-    # 16-31
-    # ...
-    #
-    # 最後のwindowは必ず動画末尾に合わせる。
-    # --------------------------------------------------------
+    windows = []
 
     step = (
         CONTEXT_LENGTH
         - CONTEXT_OVERLAP
     )
 
-    if step <= 0:
+    start = 0
 
-        raise ValueError(
-            "CONTEXT_OVERLAP must be "
-            "smaller than CONTEXT_LENGTH."
+    while True:
+
+        end = min(
+            start + CONTEXT_LENGTH,
+            num_frames,
         )
 
-    last_start = (
-        num_frames
-        - CONTEXT_LENGTH
-    )
-
-    starts = list(
-        range(
-            0,
-            last_start + 1,
-            step,
-        )
-    )
-
-    # --------------------------------------------------------
-    # 最後のwindowを必ず末尾に合わせる。
-    #
-    # 例えば83フレームなら:
-    #
-    # 0-15
-    # 8-23
-    # ...
-    # 64-79
-    # 67-82
-    #
-    # 最後の67-82を追加する。
-    # --------------------------------------------------------
-
-    if starts[-1] != last_start:
-
-        starts.append(
-            last_start
-        )
-
-    windows = []
-
-    for start in starts:
-
-        end = (
-            start
-            + CONTEXT_LENGTH
-        )
+        # ----------------------------------------------------
+        # 通常window
+        # ----------------------------------------------------
 
         indices = list(
             range(
@@ -846,9 +792,47 @@ def create_context_windows(
             )
         )
 
+        # ----------------------------------------------------
+        # 最後のwindow
+        # ----------------------------------------------------
+
+        if end >= num_frames:
+
+            # 最後が16フレーム未満になる場合、
+            # 最後の16フレームを明示的に使用する。
+            if len(indices) < CONTEXT_LENGTH:
+
+                start = max(
+                    0,
+                    num_frames - CONTEXT_LENGTH,
+                )
+
+                end = num_frames
+
+                indices = list(
+                    range(
+                        start,
+                        end,
+                    )
+                )
+
+            # 重複windowを追加しない
+            if (
+                not windows
+                or windows[-1] != indices
+            ):
+
+                windows.append(
+                    indices
+                )
+
+            break
+
         windows.append(
             indices
         )
+
+        start += step
 
     return windows
 
@@ -899,17 +883,13 @@ def create_pyramid_weights(
 
     # --------------------------------------------------------
     # 最後のwindow
-    #
-    # 最後のwindowでは後半側を強める。
-    #
-    # ここで重要なのは、
-    # 「最後のwindowだけを特別扱いして
-    # 元動画の最後のフレームを直接壊す」
-    # ような処理にはしないこと。
-    #
-    # 延長フレームは最後のwindowの後半に存在するため、
-    # 延長部分を安定させる目的で使用する。
     # --------------------------------------------------------
+    #
+    # 最後のwindowでは後半側を均一に高くする。
+    #
+    # これにより、動画末尾に向かうフレームが
+    # 前のwindowの影響だけで崩れることを防ぐ。
+    #
 
     if is_last_window:
 
@@ -990,11 +970,6 @@ def process_video_frames(
         f"{CONTEXT_OVERLAP}"
     )
 
-    log(
-        f"Context stride: "
-        f"{CONTEXT_STRIDE}"
-    )
-
     windows = create_context_windows(
         total_frames
     )
@@ -1005,7 +980,7 @@ def process_video_frames(
     )
 
     # --------------------------------------------------------
-    # Log all windows
+    # Window一覧
     # --------------------------------------------------------
 
     for index, window in enumerate(
@@ -1015,8 +990,8 @@ def process_video_frames(
 
         log(
             f"Window {index}: "
-            f"{window[0]} - "
-            f"{window[-1]}"
+            f"{window[0]} - {window[-1]} "
+            f"({len(window)} frames)"
         )
 
     # --------------------------------------------------------
@@ -1061,6 +1036,22 @@ def process_video_frames(
         )
 
         # ----------------------------------------------------
+        # Last window
+        # ----------------------------------------------------
+
+        is_last = (
+            window_number
+            ==
+            len(windows)
+        )
+
+        if is_last:
+
+            log(
+                "This is the FINAL context window."
+            )
+
+        # ----------------------------------------------------
         # Same seed for each context
         # ----------------------------------------------------
 
@@ -1072,10 +1063,19 @@ def process_video_frames(
             )
         )
 
+        # ----------------------------------------------------
+        # Input chunk
+        # ----------------------------------------------------
+
         chunk = [
             frames[index]
             for index in indices
         ]
+
+        log(
+            f"Input chunk frames: "
+            f"{len(chunk)}"
+        )
 
         try:
 
@@ -1123,6 +1123,10 @@ def process_video_frames(
                 "context window."
             )
 
+        # ----------------------------------------------------
+        # Frame count validation
+        # ----------------------------------------------------
+
         if len(output_frames) != len(indices):
 
             raise RuntimeError(
@@ -1131,10 +1135,9 @@ def process_video_frames(
                 f"{len(indices)}"
             )
 
-        is_last = (
-            window_number
-            == len(windows)
-        )
+        # ----------------------------------------------------
+        # Weights
+        # ----------------------------------------------------
 
         weights = (
             create_pyramid_weights(
@@ -1167,13 +1170,16 @@ def process_video_frames(
             result_accum[
                 global_index
             ] += (
-                frame_np
-                * weight
+                frame_np * weight
             )
 
             weight_accum[
                 global_index
             ] += weight
+
+        # ----------------------------------------------------
+        # Cleanup
+        # ----------------------------------------------------
 
         del output
         del output_frames
@@ -1245,7 +1251,6 @@ def process_video_frames(
 def save_video(
     frames,
     output_path,
-    original_frame_count=None,
 ):
 
     output_dir = os.path.dirname(
@@ -1266,6 +1271,36 @@ def save_video(
         "Saving generated frames..."
     )
 
+    # --------------------------------------------------------
+    # Clean old frames
+    # --------------------------------------------------------
+
+    for name in os.listdir(
+        output_dir
+    ):
+
+        if (
+            name.startswith("anime_")
+            and name.endswith(".png")
+        ):
+
+            try:
+
+                os.remove(
+                    os.path.join(
+                        output_dir,
+                        name,
+                    )
+                )
+
+            except Exception:
+
+                pass
+
+    # --------------------------------------------------------
+    # Save PNG frames
+    # --------------------------------------------------------
+
     for index, frame in enumerate(
         frames
     ):
@@ -1278,37 +1313,8 @@ def save_video(
         )
 
     # --------------------------------------------------------
-    # 出力するフレーム数
-    #
-    # 延長したフレームはAnimateDiffの安定化用なので、
-    # 最終動画には含めない。
+    # Encode
     # --------------------------------------------------------
-
-    output_frame_count = len(
-        frames
-    )
-
-    if original_frame_count is not None:
-
-        if (
-            original_frame_count <= 0
-            or original_frame_count > len(frames)
-        ):
-
-            raise ValueError(
-                "Invalid original_frame_count: "
-                f"{original_frame_count}"
-            )
-
-        output_frame_count = (
-            original_frame_count
-        )
-
-    log(
-        f"Encoding "
-        f"{output_frame_count} frames "
-        f"at {FPS} FPS."
-    )
 
     command = [
         "ffmpeg",
@@ -1322,9 +1328,6 @@ def save_video(
 
         "-i",
         frame_pattern,
-
-        "-frames:v",
-        str(output_frame_count),
 
         "-c:v",
         "libx264",
@@ -1733,9 +1736,6 @@ def handler(job):
 
         # ----------------------------------------------------
         # Audio
-        #
-        # 必ず元動画から取得する。
-        # 延長動画から取得しない。
         # ----------------------------------------------------
 
         has_audio, has_audio_wav = (
@@ -1756,9 +1756,9 @@ def handler(job):
             f"{has_audio_wav}"
         )
 
-        # ----------------------------------------------------
-        # Extract original frames
-        # ----------------------------------------------------
+        # ====================================================
+        # ORIGINAL FRAMES
+        # ====================================================
 
         frame_paths = extract_frames(
             input_video,
@@ -1787,29 +1787,30 @@ def handler(job):
             input_frames
         )
 
+        if original_frame_count <= 0:
+
+            raise RuntimeError(
+                "Original frame count is zero."
+            )
+
         log(
             f"Original frame count: "
             f"{original_frame_count}"
         )
 
-        if original_frame_count == 0:
+        # ====================================================
+        # EXTEND FRAME SEQUENCE
+        # ====================================================
 
-            raise RuntimeError(
-                "No original frames available."
-            )
-
-        # ----------------------------------------------------
-        # Extend ONLY for AnimateDiff processing
-        # ----------------------------------------------------
-
-        processing_frames = (
-            extend_frames_for_processing(
-                input_frames
+        extended_frames = (
+            extend_frames_for_tail(
+                input_frames,
+                EXTEND_FRAMES,
             )
         )
 
         extended_frame_count = len(
-            processing_frames
+            extended_frames
         )
 
         expected_extended_count = (
@@ -1819,7 +1820,8 @@ def handler(job):
 
         if (
             extended_frame_count
-            != expected_extended_count
+            !=
+            expected_extended_count
         ):
 
             raise RuntimeError(
@@ -1829,69 +1831,104 @@ def handler(job):
             )
 
         log(
-            f"Original frame count: "
-            f"{original_frame_count}"
-        )
-
-        log(
             f"Extended frame count: "
             f"{extended_frame_count}"
         )
 
-        # ----------------------------------------------------
-        # IMPORTANT
-        #
-        # AnimateDiff receives the extended frames.
-        #
-        # Example:
-        #
-        # Original:
-        # 0 ... 66
-        #
-        # Extension:
-        # 67 ... 82
-        #
-        # Total:
-        # 0 ... 82 = 83 frames
-        # ----------------------------------------------------
+        # ====================================================
+        # AnimateDiff
+        # ====================================================
 
-        result_frames = (
+        result_frames_extended = (
             process_video_frames(
-                processing_frames
+                extended_frames
             )
         )
 
-        if len(result_frames) != (
+        if (
+            len(result_frames_extended)
+            !=
             extended_frame_count
         ):
 
             raise RuntimeError(
-                "AnimateDiff output frame count "
-                "does not match processing frame count: "
-                f"{len(result_frames)} != "
-                f"{extended_frame_count}"
+                "AnimateDiff returned an unexpected "
+                "number of frames: "
+                f"got {len(result_frames_extended)}, "
+                f"expected {extended_frame_count}"
             )
 
+        # ====================================================
+        # REMOVE EXTENSION
+        # ====================================================
+        #
+        # ここが非常に重要。
+        #
+        # AnimateDiffには
+        #
+        #   original + extension
+        #
+        # を渡したが、最終動画には
+        #
+        #   original
+        #
+        # だけを残す。
+        #
+
+        log("=" * 70)
+        log("REMOVING TAIL EXTENSION")
+        log("=" * 70)
+
+        result_frames = (
+            result_frames_extended[
+                :original_frame_count
+            ]
+        )
+
+        if (
+            len(result_frames)
+            !=
+            original_frame_count
+        ):
+
+            raise RuntimeError(
+                "Failed to restore original "
+                "frame count: "
+                f"got {len(result_frames)}, "
+                f"expected {original_frame_count}"
+            )
+
+        log(
+            f"Final frame count: "
+            f"{len(result_frames)}"
+        )
+
+        log(
+            f"Removed extension frames: "
+            f"{EXTEND_FRAMES}"
+        )
+
         # ----------------------------------------------------
+        # Release extended frames
+        # ----------------------------------------------------
+
+        del result_frames_extended
+        del extended_frames
+
+        gc.collect()
+
+        # ====================================================
         # Encode
-        #
-        # 延長した16フレームはここで捨てる。
-        #
-        # 83 frames -> 67 frames
-        #
-        # したがって、最終動画の長さは
-        # 元動画と同じになる。
-        # ----------------------------------------------------
+        # ====================================================
 
         save_video(
             result_frames,
             anime_video,
-            original_frame_count=original_frame_count,
         )
 
-        # ----------------------------------------------------
+        # ====================================================
         # Wav2Lip
-        # --------------------------------------------------------
+        # ====================================================
 
         wav2lip_success = False
 
@@ -1905,9 +1942,9 @@ def handler(job):
                 )
             )
 
-        # ----------------------------------------------------
+        # ====================================================
         # Final video
-        # ----------------------------------------------------
+        # ====================================================
 
         if (
             wav2lip_success
@@ -1969,9 +2006,9 @@ def handler(job):
                 check=True,
             )
 
-        # ----------------------------------------------------
+        # ====================================================
         # Base64
-        # ----------------------------------------------------
+        # ====================================================
 
         with open(
             output_video,
@@ -1987,25 +2024,8 @@ def handler(job):
             )
 
         log("=" * 70)
-        log(
-            "JOB COMPLETED"
-        )
+        log("JOB COMPLETED")
         log("=" * 70)
-
-        log(
-            f"Original frames: "
-            f"{original_frame_count}"
-        )
-
-        log(
-            f"Processing frames: "
-            f"{extended_frame_count}"
-        )
-
-        log(
-            f"Final frames: "
-            f"{original_frame_count}"
-        )
 
         return {
             "video": result_b64,
@@ -2052,9 +2072,5 @@ if __name__ == "__main__":
         }
     )
 
-
-# ============================================================
-# Rebuild trigger
-# ============================================================
 
 # rebuild trigger
