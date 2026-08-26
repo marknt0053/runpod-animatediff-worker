@@ -1533,6 +1533,17 @@ def handler(job):
             f"{len(input_frames)}"
         )
 
+        # 四隅に黒点を追加（方向性マーカー）
+        marker_size = 8
+        for i, frame in enumerate(input_frames):
+            arr = np.array(frame)
+            arr[:marker_size, :marker_size] = 0  # 左上
+            arr[:marker_size, -marker_size:] = 0  # 右上
+            arr[-marker_size:, :marker_size] = 0  # 左下
+            arr[-marker_size:, -marker_size:] = 0  # 右下
+            input_frames[i] = Image.fromarray(arr)
+        log("Added corner markers to frames.")
+
         # ダミーフレームを追加（最後のフレームをCONTEXT_LENGTH分複製）
         dummy_frames = [input_frames[-1].copy() for _ in range(CONTEXT_LENGTH)]
         input_frames = input_frames + dummy_frames
