@@ -1533,11 +1533,11 @@ def handler(job):
             f"{len(input_frames)}"
         )
 
-        # ダミーフレームを追加（最後のフレームをCONTEXT_LENGTH分複製）
-        dummy_frames = [input_frames[-1].copy() for _ in range(CONTEXT_LENGTH)]
+        # 最初のCONTEXT_LENGTH分のフレームをダミーとして末尾に追加
+        dummy_frames = [f.copy() for f in input_frames[:CONTEXT_LENGTH]]
         input_frames = input_frames + dummy_frames
         log(
-            f"Added {CONTEXT_LENGTH} dummy frames. "
+            f"Added {CONTEXT_LENGTH} dummy frames from start. "
             f"Total: {len(input_frames)}"
         )
 
