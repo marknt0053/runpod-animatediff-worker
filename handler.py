@@ -1185,16 +1185,23 @@ def apply_tail_fade_back(
             - TAIL_PROTECT_FRAMES,
         )
 
-        if (
-            index < tail_start
-            or not USE_TAIL_FADE
-        ):
+        if index < tail_start:
 
             result.append(
                 generated.copy()
             )
 
             continue
+
+        # 末尾フレームは全て元動画で置き換える
+        result.append(original.copy())
+        tail_index = index - tail_start
+        tail_length = original_count - tail_start
+        log(
+            f"Tail frame {tail_index + 1}/"
+            f"{tail_length}: replaced with original"
+        )
+        continue
 
         # ----------------------------------------------------
         # Position inside protected tail
