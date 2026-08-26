@@ -62,26 +62,32 @@ SEED = 41868074274227
 
 
 # ============================================================
-# Tail extension
+# Tail stabilization
 # ============================================================
-#
-# AnimateDiffの最後の数フレームで横転する問題を抑えるため、
-# 元動画の最後のフレームを複製して処理用のフレームを追加する。
-#
-# 重要:
-#   動画そのものをFFmpegで延長しない。
-#   Python上のフレーム配列だけを延長する。
-#
-# これにより、
-#
-#   元67フレーム + 16フレーム = 83フレーム
-#
-# のように、フレーム数を完全に制御できる。
-#
-# 最終出力では、この16フレームを必ず削除する。
-#
 
+# 元動画の最後の何フレームを保護するか
+#
+# 今回確認されている横転が約13フレームなので13。
+#
+# 動画の長さには依存しない。
+TAIL_PROTECT_FRAMES = 13
+
+# AnimateDiff用に末尾へ追加するフレーム数。
+#
+# 16フレーム = 2秒 @ 8fps
+#
+# 最後のwindowを十分に処理できるよう、
+# context length以上を確保する。
 EXTEND_FRAMES = 16
+
+# 末尾フェード方式
+#
+# True:
+# AnimateDiff結果から元動画へ徐々に戻す
+#
+# False:
+# 最後のTAIL_PROTECT_FRAMESを完全に元動画へ置換
+USE_TAIL_FADE = True
 
 
 # ============================================================
@@ -177,9 +183,7 @@ def check_gpu():
         )
 
         raise RuntimeError(
-            "CUDA is not available. "
-            "RunPod Serverless Worker does not "
-            "have access to a GPU."
+            "CUDA is not available."
         )
 
     gpu_count = torch.cuda.device_count()
@@ -340,21 +344,9 @@ def load_model():
     log("MODEL INITIALIZATION")
     log("=" * 70)
 
-    # --------------------------------------------------------
-    # GPU
-    # --------------------------------------------------------
-
     check_gpu()
 
-    # --------------------------------------------------------
-    # Files
-    # --------------------------------------------------------
-
     check_models()
-
-    # --------------------------------------------------------
-    # CUDA device
-    # --------------------------------------------------------
 
     torch.cuda.set_device(0)
 
@@ -403,11 +395,8 @@ def load_model():
     sd_pipe = (
         StableDiffusionPipeline.from_single_file(
             CHECKPOINT_PATH,
-
             torch_dtype=DTYPE,
-
             safety_checker=None,
-
             requires_safety_checker=False,
         )
     )
@@ -427,11 +416,8 @@ def load_model():
     scheduler = (
         DPMSolverMultistepScheduler.from_config(
             sd_pipe.scheduler.config,
-
             algorithm_type="dpmsolver++",
-
             solver_order=2,
-
             use_karras_sigmas=True,
         )
     )
@@ -447,19 +433,12 @@ def load_model():
     pipe = (
         AnimateDiffVideoToVideoPipeline(
             vae=sd_pipe.vae,
-
             text_encoder=sd_pipe.text_encoder,
-
             tokenizer=sd_pipe.tokenizer,
-
             unet=sd_pipe.unet,
-
             motion_adapter=motion_adapter,
-
             scheduler=scheduler,
-
             feature_extractor=None,
-
             image_encoder=None,
         )
     )
@@ -522,7 +501,7 @@ def load_model():
             )
 
     # --------------------------------------------------------
-    # Cleanup SD pipeline
+    # Cleanup
     # --------------------------------------------------------
 
     del sd_pipe
@@ -530,10 +509,6 @@ def load_model():
     gc.collect()
 
     torch.cuda.empty_cache()
-
-    # --------------------------------------------------------
-    # Memory information
-    # --------------------------------------------------------
 
     allocated = (
         torch.cuda.memory_allocated()
@@ -657,88 +632,63 @@ def extract_frames(
 
 
 # ============================================================
-# Extend frames
+# Load PIL frames
 # ============================================================
 
-def extend_frames_for_tail(
-    frames,
-    extend_count,
+def load_frames_from_paths(
+    frame_paths,
 ):
 
-    if not frames:
+    frames = []
 
-        raise ValueError(
-            "Cannot extend an empty frame list."
-        )
+    for path in frame_paths:
 
-    if extend_count <= 0:
+        with Image.open(path) as image:
 
-        return list(frames)
-
-    log("=" * 70)
-    log("EXTENDING FRAME SEQUENCE FOR TAIL STABILIZATION")
-    log("=" * 70)
-
-    original_count = len(frames)
-
-    log(
-        f"Original frame count: "
-        f"{original_count}"
-    )
-
-    log(
-        f"Extension frames: "
-        f"{extend_count}"
-    )
-
-    # --------------------------------------------------------
-    # 最後のフレームを複製
-    # --------------------------------------------------------
-
-    last_frame = frames[-1]
-
-    extended_frames = (
-        list(frames)
-        +
-        [
-            last_frame
-            for _ in range(
-                extend_count
+            frames.append(
+                image.convert("RGB")
             )
-        ]
-    )
 
-    expected_count = (
-        original_count
-        + extend_count
-    )
+    return frames
 
-    actual_count = len(
-        extended_frames
-    )
 
-    if actual_count != expected_count:
+# ============================================================
+# Extend frames
+#
+# IMPORTANT:
+# We extend the already extracted frame sequence.
+#
+# We DO NOT create an extended MP4 and extract it again.
+#
+# This avoids FPS / timebase / VFR problems.
+# ============================================================
+
+def extend_frames(
+    original_frames,
+    extension_frames,
+):
+
+    if not original_frames:
 
         raise RuntimeError(
-            "Frame extension failed: "
-            f"got {actual_count}, "
-            f"expected {expected_count}"
+            "Cannot extend an empty frame sequence."
         )
 
-    log(
-        f"Extended frame count: "
-        f"{actual_count}"
+    if extension_frames <= 0:
+
+        return list(original_frames)
+
+    last_frame = original_frames[-1]
+
+    extended_frames = list(
+        original_frames
     )
 
-    log(
-        f"Expected frame count: "
-        f"{expected_count}"
-    )
+    for _ in range(extension_frames):
 
-    log(
-        "The final source frame was duplicated "
-        f"{extend_count} times."
-    )
+        extended_frames.append(
+            last_frame.copy()
+        )
 
     return extended_frames
 
@@ -758,11 +708,7 @@ def create_context_windows(
     if num_frames <= CONTEXT_LENGTH:
 
         return [
-            list(
-                range(
-                    num_frames
-                )
-            )
+            list(range(num_frames))
         ]
 
     windows = []
@@ -781,10 +727,6 @@ def create_context_windows(
             num_frames,
         )
 
-        # ----------------------------------------------------
-        # 通常window
-        # ----------------------------------------------------
-
         indices = list(
             range(
                 start,
@@ -792,47 +734,31 @@ def create_context_windows(
             )
         )
 
-        # ----------------------------------------------------
-        # 最後のwindow
-        # ----------------------------------------------------
-
-        if end >= num_frames:
-
-            # 最後が16フレーム未満になる場合、
-            # 最後の16フレームを明示的に使用する。
-            if len(indices) < CONTEXT_LENGTH:
-
-                start = max(
-                    0,
-                    num_frames - CONTEXT_LENGTH,
-                )
-
-                end = num_frames
-
-                indices = list(
-                    range(
-                        start,
-                        end,
-                    )
-                )
-
-            # 重複windowを追加しない
-            if (
-                not windows
-                or windows[-1] != indices
-            ):
-
-                windows.append(
-                    indices
-                )
-
-            break
-
         windows.append(
             indices
         )
 
+        if end >= num_frames:
+
+            break
+
         start += step
+
+        # ----------------------------------------------------
+        # If the remaining tail is smaller than the context,
+        # force the final context to contain exactly
+        # CONTEXT_LENGTH frames.
+        # ----------------------------------------------------
+
+        if (
+            num_frames - start
+            < CONTEXT_LENGTH
+        ):
+
+            start = (
+                num_frames
+                - CONTEXT_LENGTH
+            )
 
     return windows
 
@@ -882,37 +808,26 @@ def create_pyramid_weights(
     )
 
     # --------------------------------------------------------
-    # 最後のwindow
+    # Last context:
+    #
+    # Do NOT aggressively increase the last frames.
+    #
+    # The tail will be handled separately by the
+    # tail fade-back stage.
     # --------------------------------------------------------
-    #
-    # 最後のwindowでは後半側を均一に高くする。
-    #
-    # これにより、動画末尾に向かうフレームが
-    # 前のwindowの影響だけで崩れることを防ぐ。
-    #
 
     if is_last_window:
 
-        half = length // 2
-
-        max_weight = float(
-            weights_np.max()
-        )
-
-        for i in range(
-            half,
-            length,
-        ):
-
-            weights_np[i] = (
-                max_weight
-            )
+        # Keep normal pyramid weighting.
+        #
+        # Deliberately no special boost here.
+        pass
 
     return weights_np
 
 
 # ============================================================
-# AnimateDiff
+# AnimateDiff processing
 # ============================================================
 
 def process_video_frames(
@@ -926,8 +841,7 @@ def process_video_frames(
     log("=" * 70)
 
     log(
-        f"Frames: "
-        f"{total_frames}"
+        f"Frames: {total_frames}"
     )
 
     log(
@@ -936,18 +850,15 @@ def process_video_frames(
     )
 
     log(
-        f"FPS: "
-        f"{FPS}"
+        f"FPS: {FPS}"
     )
 
     log(
-        f"Steps: "
-        f"{STEPS}"
+        f"Steps: {STEPS}"
     )
 
     log(
-        f"CFG: "
-        f"{CFG}"
+        f"CFG: {CFG}"
     )
 
     log(
@@ -956,8 +867,7 @@ def process_video_frames(
     )
 
     log(
-        f"Seed: "
-        f"{SEED}"
+        f"Seed: {SEED}"
     )
 
     log(
@@ -978,21 +888,6 @@ def process_video_frames(
         f"Context windows: "
         f"{len(windows)}"
     )
-
-    # --------------------------------------------------------
-    # Window一覧
-    # --------------------------------------------------------
-
-    for index, window in enumerate(
-        windows,
-        start=1,
-    ):
-
-        log(
-            f"Window {index}: "
-            f"{window[0]} - {window[-1]} "
-            f"({len(window)} frames)"
-        )
 
     # --------------------------------------------------------
     # Accumulators
@@ -1036,46 +931,19 @@ def process_video_frames(
         )
 
         # ----------------------------------------------------
-        # Last window
-        # ----------------------------------------------------
-
-        is_last = (
-            window_number
-            ==
-            len(windows)
-        )
-
-        if is_last:
-
-            log(
-                "This is the FINAL context window."
-            )
-
-        # ----------------------------------------------------
-        # Same seed for each context
+        # Same seed for every context
         # ----------------------------------------------------
 
         generator = (
             torch.Generator(
                 device=DEVICE
-            ).manual_seed(
-                SEED
-            )
+            ).manual_seed(SEED)
         )
-
-        # ----------------------------------------------------
-        # Input chunk
-        # ----------------------------------------------------
 
         chunk = [
             frames[index]
             for index in indices
         ]
-
-        log(
-            f"Input chunk frames: "
-            f"{len(chunk)}"
-        )
 
         try:
 
@@ -1123,10 +991,6 @@ def process_video_frames(
                 "context window."
             )
 
-        # ----------------------------------------------------
-        # Frame count validation
-        # ----------------------------------------------------
-
         if len(output_frames) != len(indices):
 
             raise RuntimeError(
@@ -1135,9 +999,10 @@ def process_video_frames(
                 f"{len(indices)}"
             )
 
-        # ----------------------------------------------------
-        # Weights
-        # ----------------------------------------------------
+        is_last = (
+            window_number
+            == len(windows)
+        )
 
         weights = (
             create_pyramid_weights(
@@ -1176,10 +1041,6 @@ def process_video_frames(
             weight_accum[
                 global_index
             ] += weight
-
-        # ----------------------------------------------------
-        # Cleanup
-        # ----------------------------------------------------
 
         del output
         del output_frames
@@ -1245,6 +1106,195 @@ def process_video_frames(
 
 
 # ============================================================
+# Tail fade-back
+#
+# This is the important stabilization stage.
+#
+# The final TAIL_PROTECT_FRAMES of the ORIGINAL video
+# gradually return from AnimateDiff to the original frame.
+#
+# The extension frames themselves are NOT included in
+# the final output.
+# ============================================================
+
+def apply_tail_fade_back(
+    original_frames,
+    generated_frames,
+    extension_frames,
+):
+
+    original_count = len(
+        original_frames
+    )
+
+    generated_count = len(
+        generated_frames
+    )
+
+    log("=" * 70)
+    log("TAIL FADE-BACK")
+    log("=" * 70)
+
+    log(
+        f"Original frames: "
+        f"{original_count}"
+    )
+
+    log(
+        f"Generated frames: "
+        f"{generated_count}"
+    )
+
+    log(
+        f"Extension frames: "
+        f"{extension_frames}"
+    )
+
+    if generated_count < original_count:
+
+        raise RuntimeError(
+            "Generated frame count is smaller "
+            "than original frame count."
+        )
+
+    # --------------------------------------------------------
+    # Only the original portion survives.
+    # --------------------------------------------------------
+
+    result = []
+
+    for index in range(
+        original_count
+    ):
+
+        generated = (
+            generated_frames[index]
+        )
+
+        original = (
+            original_frames[index]
+        )
+
+        # ----------------------------------------------------
+        # Determine whether this is in protected tail.
+        # ----------------------------------------------------
+
+        tail_start = max(
+            0,
+            original_count
+            - TAIL_PROTECT_FRAMES,
+        )
+
+        if (
+            index < tail_start
+            or not USE_TAIL_FADE
+        ):
+
+            result.append(
+                generated.copy()
+            )
+
+            continue
+
+        # ----------------------------------------------------
+        # Position inside protected tail
+        # ----------------------------------------------------
+
+        tail_index = (
+            index
+            - tail_start
+        )
+
+        tail_length = (
+            original_count
+            - tail_start
+        )
+
+        # ----------------------------------------------------
+        # Blend:
+        #
+        # First protected frame:
+        # mostly AnimateDiff
+        #
+        # Last protected frame:
+        # original frame
+        # ----------------------------------------------------
+
+        if tail_length <= 1:
+
+            generated_weight = 0.0
+
+        else:
+
+            generated_weight = (
+                1.0
+                - (
+                    tail_index
+                    / (
+                        tail_length
+                        - 1
+                    )
+                )
+            )
+
+        original_weight = (
+            1.0
+            - generated_weight
+        )
+
+        generated_np = np.asarray(
+            generated,
+            dtype=np.float32,
+        )
+
+        original_np = np.asarray(
+            original,
+            dtype=np.float32,
+        )
+
+        blended = (
+            generated_np
+            * generated_weight
+            +
+            original_np
+            * original_weight
+        )
+
+        blended = np.clip(
+            blended,
+            0,
+            255,
+        ).astype(
+            np.uint8
+        )
+
+        result.append(
+            Image.fromarray(
+                blended,
+                "RGB",
+            )
+        )
+
+        log(
+            f"Tail frame {tail_index + 1}/"
+            f"{tail_length}: "
+            f"AnimateDiff={generated_weight:.3f}, "
+            f"Original={original_weight:.3f}"
+        )
+
+    log(
+        f"Tail fade-back completed."
+    )
+
+    log(
+        f"Final frames after trimming: "
+        f"{len(result)}"
+    )
+
+    return result
+
+
+# ============================================================
 # Save video
 # ============================================================
 
@@ -1272,16 +1322,16 @@ def save_video(
     )
 
     # --------------------------------------------------------
-    # Clean old frames
+    # Remove stale frames
     # --------------------------------------------------------
 
-    for name in os.listdir(
+    for filename in os.listdir(
         output_dir
     ):
 
         if (
-            name.startswith("anime_")
-            and name.endswith(".png")
+            filename.startswith("anime_")
+            and filename.endswith(".png")
         ):
 
             try:
@@ -1289,7 +1339,7 @@ def save_video(
                 os.remove(
                     os.path.join(
                         output_dir,
-                        name,
+                        filename,
                     )
                 )
 
@@ -1298,7 +1348,7 @@ def save_video(
                 pass
 
     # --------------------------------------------------------
-    # Save PNG frames
+    # Save
     # --------------------------------------------------------
 
     for index, frame in enumerate(
@@ -1756,179 +1806,161 @@ def handler(job):
             f"{has_audio_wav}"
         )
 
-        # ====================================================
-        # ORIGINAL FRAMES
-        # ====================================================
+        # ----------------------------------------------------
+        # Extract ORIGINAL frames
+        # ----------------------------------------------------
+
+        log("=" * 70)
+        log("EXTRACTING ORIGINAL VIDEO")
+        log("=" * 70)
 
         frame_paths = extract_frames(
             input_video,
             frames_dir,
         )
 
-        # ----------------------------------------------------
-        # Load original frames
-        # ----------------------------------------------------
-
-        input_frames = []
-
-        for path in frame_paths:
-
-            with Image.open(
-                path
-            ) as image:
-
-                input_frames.append(
-                    image.convert(
-                        "RGB"
-                    )
-                )
-
-        original_frame_count = len(
-            input_frames
+        original_frames = (
+            load_frames_from_paths(
+                frame_paths
+            )
         )
 
-        if original_frame_count <= 0:
-
-            raise RuntimeError(
-                "Original frame count is zero."
-            )
+        original_count = len(
+            original_frames
+        )
 
         log(
             f"Original frame count: "
-            f"{original_frame_count}"
+            f"{original_count}"
         )
 
-        # ====================================================
-        # EXTEND FRAME SEQUENCE
-        # ====================================================
+        if original_count == 0:
+
+            raise RuntimeError(
+                "Original video contains no frames."
+            )
+
+        # ----------------------------------------------------
+        # Determine tail protection
+        # ----------------------------------------------------
+
+        actual_tail_frames = min(
+            TAIL_PROTECT_FRAMES,
+            original_count,
+        )
+
+        log(
+            f"Tail protection: "
+            f"{actual_tail_frames} frames"
+        )
+
+        # ----------------------------------------------------
+        # Extend FRAME SEQUENCE
+        #
+        # The final original frame is frozen.
+        #
+        # No MP4 concat.
+        # No second FPS conversion.
+        # No timebase issue.
+        # ----------------------------------------------------
+
+        log("=" * 70)
+        log("EXTENDING FRAME SEQUENCE")
+        log("=" * 70)
 
         extended_frames = (
-            extend_frames_for_tail(
-                input_frames,
+            extend_frames(
+                original_frames,
                 EXTEND_FRAMES,
             )
         )
 
-        extended_frame_count = len(
+        extended_count = len(
             extended_frames
         )
 
-        expected_extended_count = (
-            original_frame_count
-            + EXTEND_FRAMES
+        log(
+            f"Extension frames: "
+            f"{EXTEND_FRAMES}"
         )
-
-        if (
-            extended_frame_count
-            !=
-            expected_extended_count
-        ):
-
-            raise RuntimeError(
-                "Unexpected extended frame count: "
-                f"got {extended_frame_count}, "
-                f"expected {expected_extended_count}"
-            )
 
         log(
             f"Extended frame count: "
-            f"{extended_frame_count}"
+            f"{extended_count}"
         )
 
-        # ====================================================
-        # AnimateDiff
-        # ====================================================
+        expected_count = (
+            original_count
+            + EXTEND_FRAMES
+        )
 
-        result_frames_extended = (
+        if extended_count != expected_count:
+
+            raise RuntimeError(
+                "Unexpected extended frame count: "
+                f"got {extended_count}, "
+                f"expected {expected_count}"
+            )
+
+        # ----------------------------------------------------
+        # AnimateDiff
+        # ----------------------------------------------------
+
+        result_extended_frames = (
             process_video_frames(
                 extended_frames
             )
         )
 
-        if (
-            len(result_frames_extended)
-            !=
-            extended_frame_count
-        ):
+        if len(
+            result_extended_frames
+        ) != extended_count:
 
             raise RuntimeError(
-                "AnimateDiff returned an unexpected "
-                "number of frames: "
-                f"got {len(result_frames_extended)}, "
-                f"expected {extended_frame_count}"
+                "AnimateDiff output frame count "
+                "does not match extended frame count: "
+                f"{len(result_extended_frames)} "
+                f"!= {extended_count}"
             )
 
-        # ====================================================
-        # REMOVE EXTENSION
-        # ====================================================
+        # ----------------------------------------------------
+        # Tail fade-back
         #
-        # ここが非常に重要。
-        #
-        # AnimateDiffには
-        #
-        #   original + extension
-        #
-        # を渡したが、最終動画には
-        #
-        #   original
-        #
-        # だけを残す。
-        #
-
-        log("=" * 70)
-        log("REMOVING TAIL EXTENSION")
-        log("=" * 70)
+        # This trims the extension and protects
+        # the final 13 original frames.
+        # ----------------------------------------------------
 
         result_frames = (
-            result_frames_extended[
-                :original_frame_count
-            ]
+            apply_tail_fade_back(
+                original_frames,
+                result_extended_frames,
+                EXTEND_FRAMES,
+            )
         )
 
-        if (
-            len(result_frames)
-            !=
-            original_frame_count
-        ):
+        if len(
+            result_frames
+        ) != original_count:
 
             raise RuntimeError(
-                "Failed to restore original "
-                "frame count: "
-                f"got {len(result_frames)}, "
-                f"expected {original_frame_count}"
+                "Final frame count does not match "
+                "original frame count: "
+                f"{len(result_frames)} "
+                f"!= {original_count}"
             )
 
-        log(
-            f"Final frame count: "
-            f"{len(result_frames)}"
-        )
-
-        log(
-            f"Removed extension frames: "
-            f"{EXTEND_FRAMES}"
-        )
-
         # ----------------------------------------------------
-        # Release extended frames
-        # ----------------------------------------------------
-
-        del result_frames_extended
-        del extended_frames
-
-        gc.collect()
-
-        # ====================================================
         # Encode
-        # ====================================================
+        # ----------------------------------------------------
 
         save_video(
             result_frames,
             anime_video,
         )
 
-        # ====================================================
+        # ----------------------------------------------------
         # Wav2Lip
-        # ====================================================
+        # ----------------------------------------------------
 
         wav2lip_success = False
 
@@ -1942,9 +1974,9 @@ def handler(job):
                 )
             )
 
-        # ====================================================
+        # ----------------------------------------------------
         # Final video
-        # ====================================================
+        # ----------------------------------------------------
 
         if (
             wav2lip_success
@@ -2006,9 +2038,9 @@ def handler(job):
                 check=True,
             )
 
-        # ====================================================
+        # ----------------------------------------------------
         # Base64
-        # ====================================================
+        # ----------------------------------------------------
 
         with open(
             output_video,
@@ -2027,10 +2059,27 @@ def handler(job):
         log("JOB COMPLETED")
         log("=" * 70)
 
+        log(
+            f"Original frames: "
+            f"{original_count}"
+        )
+
+        log(
+            f"Generated frames: "
+            f"{len(result_frames)}"
+        )
+
+        log(
+            f"Output duration: "
+            f"{original_count / FPS:.3f} sec"
+        )
+
         return {
             "video": result_b64,
 
-            "frames": original_frame_count,
+            "frames": len(
+                result_frames
+            ),
 
             "width": OUTPUT_WIDTH,
 
@@ -2047,7 +2096,9 @@ def handler(job):
 if __name__ == "__main__":
 
     log("=" * 70)
-    log("Starting RunPod Serverless Worker")
+    log(
+        "Starting RunPod Serverless Worker"
+    )
     log("=" * 70)
 
     log(
@@ -2073,4 +2124,6 @@ if __name__ == "__main__":
     )
 
 
-# rebuild trigger
+# ============================================================
+# Rebuild trigger
+# ============================================================
