@@ -696,6 +696,7 @@ def create_context_windows(
 
 def create_pyramid_weights(
     length,
+    is_last_window=False,
 ):
 
     if length <= 0:
@@ -728,10 +729,14 @@ def create_pyramid_weights(
             )
         )
 
-    return np.asarray(
-        weights,
-        dtype=np.float32,
-    )
+    weights_np = np.asarray(weights, dtype=np.float32)
+    # 最後のwindowは後半フレームの重みを均一に高くする
+    if is_last_window:
+        half = length // 2
+        max_weight = float(weights_np.max())
+        for i in range(half, length):
+            weights_np[i] = max_weight
+    return weights_np
 
 
 # ============================================================
