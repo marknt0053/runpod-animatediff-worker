@@ -72,6 +72,9 @@ SEED = 41868074274227
 # 動画の長さには依存しない。
 TAIL_PROTECT_FRAMES = 13
 
+# チャンク分割処理の1チャンクあたりのフレーム数
+CHUNK_FRAMES = 48
+
 # AnimateDiff用に末尾へ追加するフレーム数。
 #
 # 16フレーム = 2秒 @ 8fps
@@ -1910,52 +1913,45 @@ def handler(job):
             )
 
         # ----------------------------------------------------
-        # AnimateDiff
+        # AnimateDiff（チャンク分割処理）
         # ----------------------------------------------------
 
-        result_extended_frames = (
-            process_video_frames(
-                extended_frames
-            )
-        )
-
-        if len(
-            result_extended_frames
-        ) != extended_count:
-
-            raise RuntimeError(
-                "AnimateDiff output frame count "
-                "does not match extended frame count: "
-                f"{len(result_extended_frames)} "
-                f"!= {extended_count}"
-            )
-
-        # ----------------------------------------------------
-        # Tail fade-back
-        #
-        # This trims the extension and protects
-        # the final 13 original frames.
-        # ----------------------------------------------------
-
-        result_frames = (
-            apply_tail_fade_back(
+        if original_count <= CHUNK_FRAMES:
+            # 短い動画はそのまま処理
+            result_extended_frames = process_video_frames(extended_frames)
+            result_frames = apply_tail_fade_back(
                 original_frames,
                 result_extended_frames,
                 EXTEND_FRAMES,
             )
-        )
-
-        if len(
-            result_frames
-        ) != original_count:
-
-            raise RuntimeError(
-                "Final frame count does not match "
-                "original frame count: "
-                f"{len(result_frames)} "
-                f"!= {original_count}"
-            )
-
+        else:
+            # 長い動画はチャンク分割して処理
+            log("=" * 70)
+            log("CHUNK PROCESSING")
+            log("=" * 70)
+            all_result_frames = []
+            num_chunks = (original_count + CHUNK_FRAMES - 1) // CHUNK_FRAMES
+            log(f"Total frames: {original_count}")
+            log(f"Chunk size: {CHUNK_FRAMES}")
+            log(f"Total chunks: {num_chunks}")
+            for chunk_idx in range(num_chunks):
+                chunk_start = chunk_idx * CHUNK_FRAMES
+                chunk_end = min(chunk_start + CHUNK_FRAMES, original_count)
+                chunk_original = original_frames[chunk_start:chunk_end]
+                log("=" * 70)
+                log(f"Chunk {chunk_idx + 1}/{num_chunks}: frames {chunk_start}-{chunk_end - 1}")
+                log("=" * 70)
+                chunk_extended = extend_frames(chunk_original, EXTEND_FRAMES)
+                chunk_result_extended = process_video_frames(chunk_extended)
+                chunk_result = apply_tail_fade_back(
+                    chunk_original,
+                    chunk_result_extended,
+                    EXTEND_FRAMES,
+                )
+                all_result_frames.extend(chunk_result)
+                log(f"Chunk {chunk_idx + 1} done: {len(chunk_result)} frames")
+            result_frames = all_result_frames
+            log(f"All chunks processed: {len(result_frames)} frames total")
         # ----------------------------------------------------
         # Encode
         # ----------------------------------------------------
