@@ -1835,7 +1835,7 @@ def handler(job):
         current_windows = calc_context_windows(probe_count)
         log(f"Original frames: {probe_count}, Context windows: {current_windows}")
 
-        if current_windows == 9:
+        if 72 <= probe_count <= 87:
             # 88フレーム（10 windows）になるまで延長
             target_frames = 88
             needed_frames = target_frames - probe_count
@@ -1868,7 +1868,7 @@ def handler(job):
             original_input_video = input_video
             input_video = loop_video
             original_probe_count = probe_count
-            log(f"Extended video: {probe_count} -> {target_frames} frames to avoid 9 context windows")
+            log(f"Extended video: {probe_count} -> {target_frames} frames to avoid unstable range")
         else:
             original_input_video = input_video
             original_probe_count = probe_count
