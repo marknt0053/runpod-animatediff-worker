@@ -74,7 +74,7 @@ SEED = 41868074274227
 TAIL_PROTECT_FRAMES = 0
 
 # チャンク分割処理の1チャンクあたりのフレーム数
-CHUNK_FRAMES = 48
+CHUNK_FRAMES = 200
 
 # AnimateDiff用に末尾へ追加するフレーム数。
 #
