@@ -1932,6 +1932,15 @@ def handler(job):
             raise RuntimeError(
                 "Original video contains no frames."
             )
+        # 先頭フレームを追加して元動画末尾のContext window位置をずらす
+        step = CONTEXT_LENGTH - CONTEXT_OVERLAP
+        remainder = original_count % step
+        prepend_count = (step - remainder) % step
+        if prepend_count > 0:
+            prepend_frames = [original_frames[-1].copy() for _ in range(prepend_count)]
+            original_frames = prepend_frames + original_frames
+            original_count = len(original_frames)
+            log(f"Prepended {prepend_count} frames. New count: {original_count}")
 
         # ----------------------------------------------------
         # Determine tail protection
@@ -2004,6 +2013,10 @@ def handler(job):
             result_extended_frames = process_video_frames(extended_frames)
             # TAIL_PROTECT_FRAMES=0なのでTail fade-backをスキップ
             result_frames = list(result_extended_frames[:original_count])
+            # 先頭に追加したフレームを削除
+            if prepend_count > 0:
+                result_frames = result_frames[prepend_count:]
+                log(f"Removed {prepend_count} prepended frames. Final count: {len(result_frames)}")
         else:
             # 長い動画はチャンク分割して処理
             log("=" * 70)
