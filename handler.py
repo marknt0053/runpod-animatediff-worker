@@ -699,16 +699,15 @@ def extend_frames(
 
         return list(original_frames)
 
-    last_frame = original_frames[-1]
-
     extended_frames = list(
         original_frames
     )
 
-    for _ in range(extension_frames):
-
+    # 末尾フレームから逆再生して追加
+    reverse_frames = list(reversed(original_frames))
+    for i in range(min(extension_frames, len(reverse_frames))):
         extended_frames.append(
-            last_frame.copy()
+            reverse_frames[i].copy()
         )
 
     return extended_frames
