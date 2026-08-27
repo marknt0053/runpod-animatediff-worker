@@ -70,7 +70,7 @@ SEED = 41868074274227
 # 今回確認されている横転が約13フレームなので13。
 #
 # 動画の長さには依存しない。
-TAIL_PROTECT_FRAMES = 13
+TAIL_PROTECT_FRAMES = 0
 
 # チャンク分割処理の1チャンクあたりのフレーム数
 CHUNK_FRAMES = 48
@@ -1817,6 +1817,65 @@ def handler(job):
         )
 
         # ----------------------------------------------------
+        # フレーム数を確認してContext windows数が9になる場合は延長
+        # ----------------------------------------------------
+        probe_dir = os.path.join(tmpdir, "probe")
+        probe_paths = extract_frames(input_video, probe_dir)
+        probe_count = len(probe_paths)
+        import shutil
+        shutil.rmtree(probe_dir, ignore_errors=True)
+
+        # Context windows数を計算
+        def calc_context_windows(n):
+            if n <= CONTEXT_LENGTH:
+                return 1
+            step = CONTEXT_LENGTH - CONTEXT_OVERLAP
+            return (n - CONTEXT_LENGTH + step - 1) // step + 1
+
+        current_windows = calc_context_windows(probe_count)
+        log(f"Original frames: {probe_count}, Context windows: {current_windows}")
+
+        if current_windows == 9:
+            # 88フレーム（10 windows）になるまで延長
+            target_frames = 88
+            needed_frames = target_frames - probe_count
+            needed_seconds = needed_frames / FPS
+            loop_video = os.path.join(tmpdir, "looped.mp4")
+            extend_clip = os.path.join(tmpdir, "extend_clip.mp4")
+            concat_list = os.path.join(tmpdir, "concat.txt")
+
+            subprocess.run([
+                "ffmpeg", "-hide_banner", "-loglevel", "error",
+                "-i", input_video,
+                "-t", str(needed_seconds),
+                "-c", "copy",
+                extend_clip, "-y",
+            ], check=True)
+
+            with open(concat_list, "w") as cf:
+                cf.write("file '" + input_video + "'
+")
+                cf.write("file '" + extend_clip + "'
+")
+
+            subprocess.run([
+                "ffmpeg", "-hide_banner", "-loglevel", "error",
+                "-f", "concat",
+                "-safe", "0",
+                "-i", concat_list,
+                "-c", "copy",
+                loop_video, "-y",
+            ], check=True)
+
+            original_input_video = input_video
+            input_video = loop_video
+            original_probe_count = probe_count
+            log(f"Extended video: {probe_count} -> {target_frames} frames to avoid 9 context windows")
+        else:
+            original_input_video = input_video
+            original_probe_count = probe_count
+
+        # ----------------------------------------------------
         # Extract ORIGINAL frames
         # ----------------------------------------------------
 
@@ -1968,6 +2027,19 @@ def handler(job):
             result_frames,
             anime_video,
         )
+        # 延長した場合は元の長さにカット
+        if input_video != original_input_video:
+            trimmed_video = os.path.join(tmpdir, "trimmed.mp4")
+            trim_duration = original_probe_count / FPS
+            subprocess.run([
+                "ffmpeg", "-hide_banner", "-loglevel", "error",
+                "-i", anime_video,
+                "-t", str(trim_duration),
+                "-c", "copy",
+                trimmed_video, "-y",
+            ], check=True)
+            shutil.copy(trimmed_video, anime_video)
+            log(f"Trimmed to original length: {trim_duration:.3f}s")
 
         # ----------------------------------------------------
         # Wav2Lip
