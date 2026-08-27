@@ -1861,7 +1861,7 @@ def handler(job):
         current_windows = calc_context_windows(probe_count)
         log(f"Original frames: {probe_count}, Context windows: {current_windows}")
 
-        if 72 <= probe_count <= 87:
+        if 56 <= probe_count <= 87:
             # 88フレーム（10 windows）になるまで延長
             target_frames = 88
             needed_frames = target_frames - probe_count
