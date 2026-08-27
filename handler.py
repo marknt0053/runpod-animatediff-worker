@@ -1838,8 +1838,8 @@ def handler(job):
         # ----------------------------------------------------
         # ffprobeで動画の長さからフレーム数を計算
         duration_result = subprocess.run(
-            ["ffprobe", "-v", "error", "-select_streams", "v:0",
-             "-show_entries", "stream=duration",
+            ["ffprobe", "-v", "error",
+             "-show_entries", "format=duration",
              "-of", "default=noprint_wrappers=1:nokey=1", input_video],
             capture_output=True, text=True,
         )
@@ -1847,6 +1847,7 @@ def handler(job):
             duration_sec = float(duration_result.stdout.strip())
             probe_count = int(duration_sec * FPS)
         except:
+            duration_sec = 0
             probe_count = 0
         log(f"Video duration: {duration_sec:.3f}s, Estimated frames: {probe_count}")
 
