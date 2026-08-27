@@ -1836,11 +1836,19 @@ def handler(job):
         # ----------------------------------------------------
         # フレーム数を確認してContext windows数が9になる場合は延長
         # ----------------------------------------------------
-        probe_dir = os.path.join(tmpdir, "probe")
-        probe_paths = extract_frames(input_video, probe_dir)
-        probe_count = len(probe_paths)
-        import shutil
-        shutil.rmtree(probe_dir, ignore_errors=True)
+        # ffprobeで動画の長さからフレーム数を計算
+        duration_result = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", input_video],
+            capture_output=True, text=True,
+        )
+        try:
+            duration_sec = float(duration_result.stdout.strip())
+            probe_count = int(duration_sec * FPS)
+        except:
+            probe_count = 0
+        log(f"Video duration: {duration_sec:.3f}s, Estimated frames: {probe_count}")
 
         # Context windows数を計算
         def calc_context_windows(n):
