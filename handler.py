@@ -571,7 +571,6 @@ def extract_frames(
         "-loglevel",
         "error",
 
-        "-noautorotate",
 
         "-i",
         input_video,
