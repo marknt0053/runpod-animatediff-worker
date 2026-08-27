@@ -1853,10 +1853,8 @@ def handler(job):
             ], check=True)
 
             with open(concat_list, "w") as cf:
-                cf.write("file '" + input_video + "'
-")
-                cf.write("file '" + extend_clip + "'
-")
+                cf.write("file '" + input_video + "'\n")
+                cf.write("file '" + extend_clip + "'\n")
 
             subprocess.run([
                 "ffmpeg", "-hide_banner", "-loglevel", "error",
