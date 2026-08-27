@@ -557,7 +557,25 @@ def extract_frames(
         "frame_%06d.png",
     )
 
+        # 回転メタデータを確認
+    probe_result = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream_tags=rotate",
+         "-of", "default=noprint_wrappers=1:nokey=1", input_video],
+        capture_output=True, text=True,
+    )
+    rotation = probe_result.stdout.strip()
+    log(f"Video rotation metadata: {repr(rotation)}")
+    if rotation == "90":
+        transpose_filter = "transpose=1,"
+    elif rotation in ("-90", "270"):
+        transpose_filter = "transpose=2,"
+    elif rotation == "180":
+        transpose_filter = "transpose=1,transpose=1,"
+    else:
+        transpose_filter = ""
     vf = (
+        f"{transpose_filter}"
         f"fps={FPS},"
         f"scale={OUTPUT_WIDTH}:{OUTPUT_HEIGHT}:"
         f"force_original_aspect_ratio=increase,"
