@@ -1864,7 +1864,7 @@ def handler(job):
 
         if 56 <= probe_count <= 87:
             # 88フレーム（10 windows）になるまで延長
-            target_frames = 88
+            target_frames = 96
             needed_frames = target_frames - probe_count
             needed_seconds = needed_frames / FPS
             loop_video = os.path.join(tmpdir, "looped.mp4")
@@ -2003,11 +2003,8 @@ def handler(job):
         if original_count <= CHUNK_FRAMES:
             # 短い動画はそのまま処理
             result_extended_frames = process_video_frames(extended_frames)
-            result_frames = apply_tail_fade_back(
-                original_frames,
-                result_extended_frames,
-                EXTEND_FRAMES,
-            )
+            # TAIL_PROTECT_FRAMES=0なのでTail fade-backをスキップ
+            result_frames = list(result_extended_frames[:original_count])
         else:
             # 長い動画はチャンク分割して処理
             log("=" * 70)
