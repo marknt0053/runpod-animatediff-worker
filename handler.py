@@ -567,9 +567,9 @@ def extract_frames(
     rotation = probe_result.stdout.strip()
     log(f"Video rotation metadata: {repr(rotation)}")
     if rotation == "90":
-        transpose_filter = "transpose=1,"
-    elif rotation in ("-90", "270"):
         transpose_filter = "transpose=2,"
+    elif rotation in ("-90", "270"):
+        transpose_filter = "transpose=1,"
     elif rotation == "180":
         transpose_filter = "transpose=1,transpose=1,"
     else:
