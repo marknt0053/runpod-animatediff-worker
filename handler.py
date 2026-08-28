@@ -2058,6 +2058,18 @@ def handler(job):
         # Encode
         # ----------------------------------------------------
 
+        # 異常フレーム（横転）を検出して直前フレームで置換
+        if len(result_frames) > 2:
+            prev_np = np.asarray(result_frames[0], dtype=np.float32)
+            for i in range(1, len(result_frames)):
+                curr_np = np.asarray(result_frames[i], dtype=np.float32)
+                mse = np.mean((prev_np - curr_np) ** 2)
+                if mse > 5000:
+                    log(f"Abnormal frame detected at {i} (MSE={mse:.0f}), replacing with previous frame")
+                    result_frames[i] = result_frames[i-1].copy()
+                else:
+                    prev_np = curr_np
+
         save_video(
             result_frames,
             anime_video,
