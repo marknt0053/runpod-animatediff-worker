@@ -1718,6 +1718,9 @@ def handler(job):
             "input.video is required."
         )
 
+    input_duration = float(job_input.get("duration", 0.0))
+    log(f"Input duration from client: {input_duration:.3f}s")
+
     log("=" * 70)
     log("NEW JOB")
     log("=" * 70)
@@ -2111,17 +2114,9 @@ def handler(job):
         # 延長した場合は元の長さにカット
         if input_video != original_input_video:
             trimmed_video = os.path.join(tmpdir, "trimmed.mp4")
-            # 元動画の実際の長さを取得
-            orig_duration_result = subprocess.run(
-                ["ffprobe", "-v", "error",
-                 "-show_entries", "format=duration",
-                 "-of", "default=noprint_wrappers=1:nokey=1",
-                 original_input_video],
-                capture_output=True, text=True,
-            )
-            try:
-                trim_duration = float(orig_duration_result.stdout.strip())
-            except:
+            if input_duration > 0:
+                trim_duration = input_duration
+            else:
                 trim_duration = original_probe_count / FPS
             log(f"Trim duration: {trim_duration:.3f}s")
             subprocess.run([
