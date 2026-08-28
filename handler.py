@@ -57,7 +57,7 @@ STEPS = 20
 
 CFG = 7.0
 
-DENOISE = 0.65
+DENOISE = 0.55
 
 SEED = 41868074274227
 
@@ -838,10 +838,11 @@ def create_pyramid_weights(
 
     if is_last_window:
 
-        # Keep normal pyramid weighting.
-        #
-        # Deliberately no special boost here.
-        pass
+        # 最後のwindowの後半フレームの重みを最大値に設定
+        half = len(weights_np) // 2
+        max_weight = float(weights_np.max())
+        for i in range(half, len(weights_np)):
+            weights_np[i] = max_weight
 
     return weights_np
 
