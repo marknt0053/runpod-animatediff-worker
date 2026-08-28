@@ -2095,14 +2095,6 @@ def handler(job):
                     else:
                         break
 
-            # 横転フレームの範囲を検出
-            abnormal_frames = set()
-            for i, mse in mse_values:
-                if mse > threshold:
-                    abnormal_frames.add(i)
-                    log(f"Abnormal frame at {i} (MSE={mse:.0f})")
-
-            # 線形補間で横転フレームを置換
             # 横転フレームを1フレームずつ個別にAnimateDiff処理して置換
             if abnormal_frames:
                 log(f"Re-processing {len(abnormal_frames)} abnormal frames individually")
