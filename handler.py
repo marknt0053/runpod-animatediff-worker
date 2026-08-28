@@ -2089,39 +2089,20 @@ def handler(job):
                 for i in range(first_abnormal, len(result_frames)):
                     curr_np = np.asarray(result_frames[i], dtype=np.float32)
                     mse_from_normal = np.mean((normal_np - curr_np) ** 2)
-                    if mse_from_normal > threshold * 0.5:
+                    if mse_from_normal > threshold * 2:
                         abnormal_frames.add(i)
                         log(f"Abnormal frame at {i} (MSE from normal={mse_from_normal:.0f})")
                     else:
                         break
 
             # 横転フレームを1フレームずつ個別にAnimateDiff処理して置換
+            # 横転フレームを直前の正常フレームで置換
             if abnormal_frames:
-                log(f"Re-processing {len(abnormal_frames)} abnormal frames individually")
+                normal_frame = result_frames[first_abnormal - 1].copy()
+                log(f"Replacing {len(abnormal_frames)} abnormal frames with frame {first_abnormal - 1}")
                 for frame_idx in sorted(abnormal_frames):
-                    orig_idx = min(frame_idx, len(original_frames) - 1)
-                    log(f"Re-processing frame {frame_idx} (original frame {orig_idx})")
-                    single_frame = [original_frames[orig_idx]]
-                    try:
-                        with torch.inference_mode():
-                            single_output = pipe(
-                                prompt=PROMPT,
-                                negative_prompt=NEGATIVE_PROMPT,
-                                video=single_frame,
-                                height=OUTPUT_HEIGHT,
-                                width=OUTPUT_WIDTH,
-                                strength=DENOISE,
-                                num_inference_steps=STEPS,
-                                guidance_scale=CFG,
-                                generator=torch.Generator(device=DEVICE).manual_seed(SEED),
-                                output_type="pil",
-                            )
-                        result_frames[frame_idx] = single_output.frames[0][0]
-                        log(f"Frame {frame_idx} re-processed successfully")
-                    except Exception as e:
-                        log(f"Frame {frame_idx} re-processing failed: {e}")
-                        if frame_idx > 0:
-                            result_frames[frame_idx] = result_frames[frame_idx - 1].copy()
+                    result_frames[frame_idx] = normal_frame.copy()
+                    log(f"Frame {frame_idx} replaced with normal frame")
 
         save_video(
             result_frames,
