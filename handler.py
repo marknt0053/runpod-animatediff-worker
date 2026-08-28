@@ -2073,6 +2073,9 @@ def handler(job):
             avg_mse = sum(m for _, m in mse_values) / len(mse_values)
             threshold = max(avg_mse * 5, 500)
             log(f"MSE vs original avg={avg_mse:.0f}, threshold={threshold:.0f}")
+            # 最後の10フレームのMSEをログ出力
+            for i, mse in mse_values[-10:]:
+                log(f"Frame {i} MSE vs original={mse:.0f}")
 
             # 横転フレームの範囲を検出
             abnormal_frames = set()
