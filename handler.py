@@ -2111,12 +2111,25 @@ def handler(job):
         # 延長した場合は元の長さにカット
         if input_video != original_input_video:
             trimmed_video = os.path.join(tmpdir, "trimmed.mp4")
-            trim_duration = original_probe_count / FPS
+            # 元動画の実際の長さを取得
+            orig_duration_result = subprocess.run(
+                ["ffprobe", "-v", "error",
+                 "-show_entries", "format=duration",
+                 "-of", "default=noprint_wrappers=1:nokey=1",
+                 original_input_video],
+                capture_output=True, text=True,
+            )
+            try:
+                trim_duration = float(orig_duration_result.stdout.strip())
+            except:
+                trim_duration = original_probe_count / FPS
+            log(f"Trim duration: {trim_duration:.3f}s")
             subprocess.run([
                 "ffmpeg", "-hide_banner", "-loglevel", "error",
                 "-i", anime_video,
                 "-t", str(trim_duration),
-                "-c", "copy",
+                "-c:v", "libx264", "-crf", "18",
+                "-c:a", "copy",
                 trimmed_video, "-y",
             ], check=True)
             shutil.copy(trimmed_video, anime_video)
