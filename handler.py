@@ -2060,22 +2060,40 @@ def handler(job):
 
         # 異常フレーム（横転）を検出して直前フレームで置換
         if len(result_frames) > 2:
-            # 元動画フレームとの差分でMSEを計算して横転フレームを検出
+            # 前フレームとの差分でMSEを計算して横転開始を検出
+            prev_np = np.asarray(result_frames[0], dtype=np.float32)
             mse_values = []
-            for i in range(len(result_frames)):
-                orig_idx = min(i, len(original_frames) - 1)
-                orig_np = np.asarray(original_frames[orig_idx], dtype=np.float32)
-                result_np = np.asarray(result_frames[i], dtype=np.float32)
-                mse = np.mean((orig_np - result_np) ** 2)
+            for i in range(1, len(result_frames)):
+                curr_np = np.asarray(result_frames[i], dtype=np.float32)
+                mse = np.mean((prev_np - curr_np) ** 2)
                 mse_values.append((i, mse))
+                prev_np = curr_np
 
-            # 動的閾値で横転フレームを特定
             avg_mse = sum(m for _, m in mse_values) / len(mse_values)
-            threshold = max(avg_mse * 5, 500)
-            log(f"MSE vs original avg={avg_mse:.0f}, threshold={threshold:.0f}")
-            # 最後の10フレームのMSEをログ出力
+            threshold = max(avg_mse * 10, 500)
+            log(f"MSE avg={avg_mse:.0f}, threshold={threshold:.0f}")
             for i, mse in mse_values[-10:]:
-                log(f"Frame {i} MSE vs original={mse:.0f}")
+                log(f"Frame {i} MSE={mse:.0f}")
+
+            # 横転開始フレームを検出
+            abnormal_frames = set()
+            first_abnormal = None
+            for i, mse in mse_values:
+                if mse > threshold:
+                    first_abnormal = i
+                    break
+
+            if first_abnormal is not None:
+                # 横転直前の正常フレームを基準にして連続横転を検出
+                normal_np = np.asarray(result_frames[first_abnormal - 1], dtype=np.float32)
+                for i in range(first_abnormal, len(result_frames)):
+                    curr_np = np.asarray(result_frames[i], dtype=np.float32)
+                    mse_from_normal = np.mean((normal_np - curr_np) ** 2)
+                    if mse_from_normal > threshold * 0.5:
+                        abnormal_frames.add(i)
+                        log(f"Abnormal frame at {i} (MSE from normal={mse_from_normal:.0f})")
+                    else:
+                        break
 
             # 横転フレームの範囲を検出
             abnormal_frames = set()
