@@ -2061,14 +2061,29 @@ def handler(job):
         # 異常フレーム（横転）を検出して直前フレームで置換
         if len(result_frames) > 2:
             prev_np = np.asarray(result_frames[0], dtype=np.float32)
+            mse_values = []
             for i in range(1, len(result_frames)):
                 curr_np = np.asarray(result_frames[i], dtype=np.float32)
                 mse = np.mean((prev_np - curr_np) ** 2)
-                if mse > 5000:
-                    log(f"Abnormal frame detected at {i} (MSE={mse:.0f}), replacing with previous frame")
-                    result_frames[i] = result_frames[i-1].copy()
-                else:
-                    prev_np = curr_np
+                mse_values.append((i, mse))
+                prev_np = curr_np
+            # MSE値をログ出力（最後の10フレーム）
+            for i, mse in mse_values[-10:]:
+                log(f"Frame {i} MSE={mse:.0f}")
+            # 最大MSEの3倍以上の閾値で検出
+            if mse_values:
+                avg_mse = sum(m for _, m in mse_values) / len(mse_values)
+                threshold = max(avg_mse * 5, 1000)
+                log(f"MSE avg={avg_mse:.0f}, threshold={threshold:.0f}")
+                prev_np = np.asarray(result_frames[0], dtype=np.float32)
+                for i in range(1, len(result_frames)):
+                    curr_np = np.asarray(result_frames[i], dtype=np.float32)
+                    mse = np.mean((prev_np - curr_np) ** 2)
+                    if mse > threshold:
+                        log(f"Abnormal frame detected at {i} (MSE={mse:.0f}), replacing with previous frame")
+                        result_frames[i] = result_frames[i-1].copy()
+                    else:
+                        prev_np = curr_np
 
         save_video(
             result_frames,
