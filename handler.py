@@ -1704,7 +1704,9 @@ def handler(job):
 
     # ウォームアップリクエストの処理
     if job_input.get("warmup"):
-        log("Warmup request received. Worker is ready.")
+        log("Warmup request received. Loading model...")
+        load_model()
+        log("Warmup complete. Worker is ready.")
         return {"status": "ready"}
 
     video_b64 = job_input.get(
