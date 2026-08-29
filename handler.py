@@ -1721,12 +1721,10 @@ def handler(job):
 
     input_duration = float(job_input.get("duration", 0.0))
     log(f"Input duration from client: {input_duration:.3f}s")
+    global OUTPUT_WIDTH, OUTPUT_HEIGHT
     input_width = int(job_input.get("width", OUTPUT_WIDTH))
     input_height = int(job_input.get("height", OUTPUT_HEIGHT))
     log(f"Input size from client: {input_width}x{input_height}")
-
-    # クライアントから受け取ったサイズで上書き
-    global OUTPUT_WIDTH, OUTPUT_HEIGHT
     OUTPUT_WIDTH = input_width
     OUTPUT_HEIGHT = input_height
     log("=" * 70)
